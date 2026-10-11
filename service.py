@@ -112,7 +112,7 @@ app = Flask(__name__)
 
 # Restrict CORS to your own origins
 ALLOWED_ORIGINS = [
-    'https://service-wuhw.onrender.com',
+    'https://service-ur14.onrender.com',
     'http://localhost:5001',
     'http://127.0.0.1:5001',
 ]
@@ -298,7 +298,7 @@ def get_server_url():
         render_url = os.environ.get('RENDER_EXTERNAL_URL', '')
         if render_url:
             return render_url.rstrip('/')
-        return 'https://service-wuhw.onrender.com'
+        return 'https://service-ur14.onrender.com'
     return 'http://localhost:5001'
 
 def ping_server():
