@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🛡️ Remote Control - GODMODE</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+:root {
+    --bg-primary: #0d1117; --bg-secondary: #161b22; --bg-panel: #1c2128;
+    --border: #30363d; --text-primary: #e6edf3; --text-secondary: #8b949e;
+    --accent: #238636; --blue: #1f6feb; --purple: #8957e5;
+    --red: #da3633; --orange: #d29922;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: var(--bg-primary); color: var(--text-primary);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden; height: 100vh;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+/* ============================================================
+   PIN GATE
+   ============================================================ */
+#pinGate {
+    position: fixed; inset: 0; z-index: 10000;
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+    display: flex; align-items: center; justify-content: center;
+}
+#pinGate.hidden { display: none; }
+.pin-card {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 40px 48px;
+    min-width: 400px; text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    animation: pinFadeIn 0.3s ease;
+}
+@keyframes pinFadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.pin-card .pin-icon {
+    font-size: 48px; color: var(--blue); margin-bottom: 16px;
+}
+.pin-card h2 {
+    font-size: 22px; font-weight: 700; margin-bottom: 8px;
+}
+.pin-card p {
+    color: var(--text-secondary); font-size: 13px;
+    margin-bottom: 28px;
+}
+.pin-inputs {
+    display: flex; gap: 10px; justify-content: center;
+    margin-bottom: 24px;
+}
+.pin-inputs input {
+    width: 52px; height: 62px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 26px; font-weight: 700;
+    text-align: center; outline: none;
+    transition: all 0.15s;
+    font-family: 'Consolas', monospace;
+    caret-color: var(--blue);
+}
+.pin-inputs input:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.2);
+}
+.pin-inputs input.filled {
+    border-color: var(--accent);
+    background: rgba(35, 134, 54, 0.08);
+}
+.pin-inputs input.error {
+    border-color: var(--red);
+    animation: shake 0.3s;
+}
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-6px); }
+    75% { transform: translateX(6px); }
+}
+#pinSubmit {
+    width: 100%; padding: 12px 24px;
+    background: var(--blue); border: none;
+    color: white; font-size: 15px; font-weight: 600;
+    border-radius: 8px; cursor: pointer;
+    transition: all 0.15s;
+}
+#pinSubmit:hover { background: #388bfd; transform: translateY(-1px); }
+#pinSubmit:disabled {
+    background: var(--border); cursor: not-allowed;
+    transform: none; opacity: 0.6;
+}
+#pinError {
+    color: var(--red); font-size: 12px;
+    margin-top: 16px; min-height: 18px;
+}
+#pinHint {
+    color: var(--text-secondary); font-size: 11px;
+    margin-top: 20px;
+}
+
+/* ============================================================
+   MAIN UI
+   ============================================================ */
+.rc-header {
+    height: 48px; background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center;
+    padding: 0 16px; gap: 12px; flex-shrink: 0;
+}
+.rc-header .brand { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.rc-header .brand i { color: var(--blue); font-size: 18px; }
+.rc-header .device-select {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    color: var(--text-primary); padding: 5px 12px;
+    border-radius: 6px; font-size: 12px;
+    min-width: 280px; cursor: pointer; outline: none;
+}
+.rc-header .status-pill {
+    margin-left: auto; display: flex; align-items: center; gap: 8px;
+    padding: 5px 12px; border-radius: 20px;
+    background: var(--bg-panel); font-size: 11px;
+    border: 1px solid var(--border);
+}
+.rc-header .status-pill .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent);
+    animation: pulse 2s infinite;
+}
+.rc-header .status-pill.offline .dot { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+.rc-header .header-btn {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-secondary); padding: 5px 10px;
+    border-radius: 6px; font-size: 12px;
+    cursor: pointer; transition: all 0.15s;
+}
+.rc-header .header-btn:hover { background: var(--bg-panel); color: var(--text-primary); }
+
+.rc-body { display: flex; height: calc(100vh - 48px); overflow: hidden; }
+.rc-sidebar-left {
+    width: 220px; background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+    padding: 12px; overflow-y: auto; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 12px;
+}
+.sidebar-section-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    color: var(--text-secondary); letter-spacing: 1px;
+    margin-bottom: 6px; padding: 0 4px;
+}
+.menu-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-radius: 6px; cursor: pointer;
+    font-size: 12px; color: var(--text-secondary); transition: all 0.15s;
+}
+.menu-item:hover { background: var(--bg-panel); color: var(--text-primary); }
+.menu-item i { width: 16px; text-align: center; }
+.device-list { display: flex; flex-direction: column; gap: 4px; }
+.device-card {
+    padding: 8px 10px; border-radius: 6px;
+    background: var(--bg-panel); border: 1px solid transparent;
+    cursor: pointer; transition: all 0.15s; font-size: 11px;
+}
+.device-card:hover { border-color: var(--blue); }
+.device-card.active { border-color: var(--accent); background: rgba(35, 134, 54, 0.1); }
+.device-card .device-name { font-weight: 600; color: var(--text-primary); }
+.device-card .device-model { color: var(--text-secondary); font-size: 10px; margin-top: 2px; }
+.device-card .device-badge {
+    display: inline-block; font-size: 9px;
+    padding: 1px 6px; border-radius: 8px;
+    margin-left: 6px; font-weight: 600;
+}
+.device-card .device-badge.online { background: rgba(35, 134, 54, 0.2); color: #3fb950; }
+.device-card .device-badge.offline { background: rgba(218, 54, 51, 0.2); color: #f85149; }
+
+.rc-screen-area {
+    flex: 1; background: #000;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+}
+.rc-screen-wrapper {
+    position: relative; max-height: 100%; max-width: 100%;
+    display: flex; align-items: center; justify-content: center;
+}
+#screenImg {
+    display: block; max-width: 100%;
+    max-height: calc(100vh - 48px);
+    user-select: none; -webkit-user-drag: none; pointer-events: none;
+}
+#screenOverlay { position: absolute; inset: 0; cursor: crosshair; z-index: 10; }
+.rc-screen-loading {
+    position: absolute; inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 20; gap: 12px;
+}
+.rc-screen-loading.hidden { display: none; }
+.spinner-ring {
+    width: 40px; height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--blue); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.screen-info-bar {
+    position: absolute; bottom: 12px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(10px);
+    padding: 6px 16px; border-radius: 20px;
+    font-size: 11px; display: flex; align-items: center;
+    gap: 12px; z-index: 15; border: 1px solid var(--border);
+}
+.screen-info-bar .badge {
+    background: var(--accent); padding: 2px 8px;
+    border-radius: 10px; font-size: 10px; font-weight: 600;
+}
+.touch-indicator {
+    position: absolute; width: 40px; height: 40px;
+    border-radius: 50%; background: rgba(31, 111, 235, 0.4);
+    border: 2px solid var(--blue);
+    transform: translate(-50%, -50%) scale(0);
+    pointer-events: none;
+    animation: touchRipple 0.5s ease-out; z-index: 12;
+}
+@keyframes touchRipple {
+    0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+
+.rc-sidebar-right {
+    width: 260px; background: var(--bg-secondary);
+    border-left: 1px solid var(--border); padding: 12px;
+    overflow-y: auto; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 16px;
+}
+.control-panel {
+    background: var(--bg-panel); border-radius: 8px; padding: 12px;
+}
+.control-panel h6 {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; color: var(--text-secondary);
+    letter-spacing: 1px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 6px;
+}
+.control-panel h6 i { color: var(--blue); }
+.btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.btn-ctrl {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    color: var(--text-primary); padding: 8px 6px;
+    border-radius: 6px; font-size: 11px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px; transition: all 0.15s; font-weight: 500;
+}
+.btn-ctrl:hover {
+    background: var(--blue); border-color: var(--blue);
+    color: white; transform: translateY(-1px);
+}
+.btn-ctrl.danger:hover { background: var(--red); border-color: var(--red); }
+.btn-ctrl.warning:hover { background: var(--orange); border-color: var(--orange); }
+.btn-ctrl.success:hover { background: var(--accent); border-color: var(--accent); }
+.text-input-group { display: flex; gap: 6px; }
+.text-input-group input {
+    flex: 1; background: var(--bg-secondary);
+    border: 1px solid var(--border); color: var(--text-primary);
+    padding: 8px 10px; border-radius: 6px;
+    font-size: 12px; outline: none;
+}
+.text-input-group input:focus { border-color: var(--blue); }
+.text-input-group button {
+    background: var(--blue); border: none;
+    color: white; padding: 8px 14px;
+    border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.app-drawer {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 8px; max-height: 320px; overflow-y: auto; padding: 4px;
+}
+.app-item {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 4px;
+    padding: 8px 4px; border-radius: 6px;
+    cursor: pointer; transition: all 0.15s;
+    text-align: center;
+}
+.app-item:hover { background: var(--bg-secondary); transform: translateY(-2px); }
+.app-item:active { transform: translateY(0) scale(0.95); }
+.app-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--blue), var(--purple));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; color: white;
+}
+.app-name {
+    font-size: 9px; color: var(--text-secondary);
+    max-width: 60px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+}
+.rc-log {
+    position: fixed; bottom: 0; left: 220px; right: 260px;
+    background: rgba(13, 17, 23, 0.95);
+    border-top: 1px solid var(--border);
+    max-height: 120px; overflow-y: auto;
+    padding: 8px 16px; font-family: 'Consolas', monospace;
+    font-size: 11px; z-index: 30; transition: all 0.2s;
+}
+.rc-log.collapsed { max-height: 32px; overflow: hidden; }
+.rc-log .log-line { padding: 2px 0; color: var(--text-secondary); }
+.rc-log .log-line .time { color: #6e7681; margin-right: 8px; }
+.rc-log .log-line.success { color: #7ee787; }
+.rc-log .log-line.error { color: #ff7b72; }
+.rc-log .log-line.info { color: #79c0ff; }
+.rc-log .log-line.warn { color: #f2cc60; }
+.log-toggle {
+    position: fixed; bottom: 8px; right: 268px;
+    background: var(--bg-panel); border: 1px solid var(--border);
+    color: var(--text-secondary); padding: 4px 10px;
+    border-radius: 6px; font-size: 10px;
+    cursor: pointer; z-index: 31;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     PIN GATE
+     ============================================================ -->
+<div id="pinGate" class="hidden">
+    <div class="pin-card">
+        <div class="pin-icon"><i class="fas fa-shield-alt"></i></div>
+        <h2>Parent Dashboard</h2>
+        <p>Enter your 6-digit PIN to unlock</p>
+        <div class="pin-inputs">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="0">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="1">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="2">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="3">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="4">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="5">
+        </div>
+        <button id="pinSubmit" disabled>Unlock</button>
+        <div id="pinError"></div>
+        <div id="pinHint">Same PIN you set as PARENT_PIN on the server</div>
+    </div>
+</div>
+
+<!-- ============================================================
+     MAIN UI
+     ============================================================ -->
+<div class="rc-header">
+    <div class="brand">
+        <i class="fas fa-shield-alt"></i>
+        <span>Remote Control</span>
+    </div>
+    <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
+        <option value="">-- Select Device --</option>
+    </select>
+    <button class="header-btn" onclick="rcRefreshDevices()" title="Refresh devices"><i class="fas fa-sync"></i></button>
+    <button class="header-btn" id="btnRefreshScreen" onclick="rcToggleAutoRefresh()" title="Toggle auto-refresh">
+        <i class="fas fa-pause"></i> <span id="refreshLabel">Auto</span>
+    </button>
+    <button class="header-btn" onclick="rcForceScreenshot()" title="Force screenshot"><i class="fas fa-camera"></i></button>
+    <button class="header-btn" onclick="rcLogout()" title="Lock dashboard"><i class="fas fa-lock"></i></button>
+    <div class="status-pill offline" id="statusPill">
+        <div class="dot"></div>
+        <span id="statusText">Disconnected</span>
+    </div>
+</div>
+
+<div class="rc-body">
+    <div class="rc-sidebar-left">
+        <div>
+            <div class="sidebar-section-title">Devices</div>
+            <div class="device-list" id="deviceList">
+                <div style="font-size: 11px; color: var(--text-secondary); padding: 8px;">No devices connected</div>
+            </div>
+        </div>
+        <div>
+            <div class="sidebar-section-title">Quick Actions</div>
+            <div class="menu-item" onclick="rcKey('screenshot')"><i class="fas fa-camera"></i> Snapshot</div>
+            <div class="menu-item" onclick="rcKey('wake')"><i class="fas fa-sun"></i> Wake Screen</div>
+            <div class="menu-item" onclick="rcKey('lock')"><i class="fas fa-lock"></i> Lock Screen</div>
+            <div class="menu-item" onclick="rcKey('notifications')"><i class="fas fa-bell"></i> Notifications</div>
+        </div>
+        <div>
+            <div class="sidebar-section-title">Session</div>
+            <div class="menu-item" onclick="rcRefreshScreen()"><i class="fas fa-redo"></i> Refresh</div>
+            <div class="menu-item" onclick="rcClearLog()"><i class="fas fa-eraser"></i> Clear Log</div>
+            <div class="menu-item" onclick="rcLogout()"><i class="fas fa-sign-out-alt"></i> Lock</div>
+        </div>
+    </div>
+
+    <div class="rc-screen-area">
+        <div class="rc-screen-wrapper" id="screenWrapper">
+            <img id="screenImg" alt="Device screen" />
+            <div id="screenOverlay"></div>
+            <div class="rc-screen-loading" id="screenLoading">
+                <div class="spinner-ring"></div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Waiting for screen...</div>
+            </div>
+            <div class="screen-info-bar" id="screenInfoBar" style="display: none;">
+                <span class="badge" id="fpsBadge">0 FPS</span>
+                <span id="screenInfo">—</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="rc-sidebar-right">
+        <div class="control-panel">
+            <h6><i class="fas fa-gamepad"></i> Navigation</h6>
+            <div class="btn-grid">
+                <button class="btn-ctrl" onclick="rcKey('back')"><i class="fas fa-arrow-left"></i> Back</button>
+                <button class="btn-ctrl" onclick="rcKey('home')"><i class="fas fa-house"></i> Home</button>
+                <button class="btn-ctrl" onclick="rcKey('recents')"><i class="fas fa-list"></i> Recents</button>
+                <button class="btn-ctrl" onclick="rcKey('notifications')"><i class="fas fa-bell"></i> Shade</button>
+                <button class="btn-ctrl warning" onclick="rcKey('wake')"><i class="fas fa-sun"></i> Wake</button>
+                <button class="btn-ctrl danger" onclick="rcKey('lock')"><i class="fas fa-lock"></i> Lock</button>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <h6><i class="fas fa-keyboard"></i> Text Input</h6>
+            <div class="text-input-group">
+                <input type="text" id="rcTextInput" placeholder="Type text..." />
+                <button onclick="rcSendText()"><i class="fas fa-paper-plane"></i></button>
+            </div>
+            <div style="margin-top: 8px; display: flex; gap: 6px;">
+                <button class="btn-ctrl" style="flex: 1;" onclick="rcKey('backspace')"><i class="fas fa-delete-left"></i> Backspace</button>
+                <button class="btn-ctrl danger" style="flex: 1;" onclick="rcClearText()"><i class="fas fa-eraser"></i> Clear</button>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <h6>
+                <i class="fas fa-th"></i> Apps
+                <button class="btn-ctrl" style="margin-left: auto; padding: 2px 8px; font-size: 10px;" onclick="rcLoadApps()">
+                    <i class="fas fa-sync"></i>
+                </button>
+            </h6>
+            <div class="app-drawer" id="appDrawer">
+                <div style="grid-column: span 4; text-align: center; color: var(--text-secondary); font-size: 11px; padding: 12px;">
+                    Click <i class="fas fa-sync"></i> to load apps
+                </div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <h6><i class="fas fa-tachometer-alt"></i> Stream Quality</h6>
+            <select class="form-select form-select-sm" id="streamQuality" style="background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); font-size: 11px;" onchange="rcSetQuality(this.value)">
+                <option value="500">High (2 FPS)</option>
+                <option value="1000" selected>Medium (1 FPS)</option>
+                <option value="2000">Low (0.5 FPS)</option>
+                <option value="0">Manual only</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<div class="rc-log" id="rcLog">
+    <div class="log-line info"><span class="time">[--:--:--]</span>Remote Control initialized</div>
+</div>
+<button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
+    <i class="fas fa-chevron-down"></i>
+</button>
+
+<script>
+// ============================================================
+// CONFIG
+// ============================================================
+const API_URL = window.location.origin;
+let currentDeviceId = null;
+let autoRefreshTimer = null;
+let autoRefreshEnabled = true;
+let currentRefreshInterval = 1000;
+let fpsCounter = 0;
+let fpsTimestamp = Date.now();
+let lastScreenshotFilename = null;
+let pressTimer = null;
+let startPoint = null;
+let isDragging = false;
+let lastDeviceIdsHash = '';
+let currentDeviceScreen = null;
+let SESSION_TOKEN = '';   // stored in memory only
+
+// ============================================================
+// PIN GATE
+// ============================================================
+function _pinInputs() { return document.querySelectorAll('.pin-inputs input'); }
+
+function pinAllFilled() {
+    return Array.from(_pinInputs()).every(i => i.value.length === 1);
+}
+
+function pinValue() {
+    return Array.from(_pinInputs()).map(i => i.value).join('');
+}
+
+function pinClear(showError=false) {
+    _pinInputs().forEach(i => {
+        i.value = '';
+        i.classList.remove('filled');
+        if (showError) i.classList.add('error');
+    });
+    setTimeout(() => _pinInputs().forEach(i => i.classList.remove('error')), 500);
+    _pinInputs()[0]?.focus();
+    document.getElementById('pinSubmit').disabled = true;
+}
+
+function pinUpdateState() {
+    _pinInputs().forEach(i => {
+        if (i.value.length === 1) i.classList.add('filled');
+        else i.classList.remove('filled');
+    });
+    document.getElementById('pinSubmit').disabled = !pinAllFilled();
+}
+
+async function pinSubmit() {
+    const pin = pinValue();
+    if (pin.length !== 6) return;
+
+    const btn = document.getElementById('pinSubmit');
+    btn.disabled = true;
+    btn.textContent = 'Verifying...';
+
+    try {
+        const r = await fetch(API_URL + '/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ pin })
+        });
+        const data = await r.json();
+        if (r.ok && data.success) {
+            SESSION_TOKEN = 'cookie';   // cookie handles auth
+            document.getElementById('pinGate').classList.add('hidden');
+            rcLog('✅ Unlocked', 'success');
+            rcBootAfterAuth();
+            return;
+        }
+        if (r.status === 429) {
+            document.getElementById('pinError').textContent = 'Too many attempts. Try again in 5 minutes.';
+        } else {
+            document.getElementById('pinError').textContent = data.error || 'Incorrect PIN';
+        }
+    } catch (e) {
+        document.getElementById('pinError').textContent = 'Server unreachable';
+    }
+    pinClear(true);
+    btn.textContent = 'Unlock';
+}
+
+function rcLogout() {
+    fetch(API_URL + '/api/auth/logout', { method: 'POST', credentials: 'include' });
+    SESSION_TOKEN = '';
+    location.reload();
+}
+
+// Wire PIN inputs on load
+document.addEventListener('DOMContentLoaded', () => {
+    const inputs = _pinInputs();
+    inputs.forEach((input, idx) => {
+        input.addEventListener('input', (e) => {
+            // Allow only digits
+            e.target.value = e.target.value.replace(/[^0-9]/g, '');
+            if (e.target.value.length === 1 && idx < 5) {
+                inputs[idx + 1].focus();
+            }
+            pinUpdateState();
+            if (pinAllFilled()) {
+                setTimeout(pinSubmit, 100);
+            }
+        });
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Backspace' && !e.target.value && idx > 0) {
+                inputs[idx - 1].focus();
+                inputs[idx - 1].value = '';
+                pinUpdateState();
+                e.preventDefault();
+            }
+            if (e.key === 'Enter' && pinAllFilled()) {
+                pinSubmit();
+            }
+        });
+        input.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const paste = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '').slice(0, 6);
+            for (let i = 0; i < 6; i++) inputs[i].value = paste[i] || '';
+            pinUpdateState();
+            if (pinAllFilled()) setTimeout(pinSubmit, 100);
+        });
+    });
+    document.getElementById('pinSubmit').addEventListener('click', pinSubmit);
+
+    // Check existing session
+    rcCheckAuth();
+});
+
+async function rcCheckAuth() {
+    try {
+        const r = await fetch(API_URL + '/api/auth/status', { credentials: 'include' });
+        const data = await r.json();
+        if (!data.requires_pin) {
+            // Dev mode — no PIN needed
+            document.getElementById('pinGate').classList.add('hidden');
+            rcBootAfterAuth();
+            return;
+        }
+        if (data.has_session) {
+            // Verify still valid
+            const v = await fetch(API_URL + '/api/auth/verify', { credentials: 'include' });
+            if (v.ok) {
+                SESSION_TOKEN = 'cookie';
+                document.getElementById('pinGate').classList.add('hidden');
+                rcBootAfterAuth();
+                return;
+            }
+        }
+        // Show PIN gate
+        document.getElementById('pinGate').classList.remove('hidden');
+        setTimeout(() => _pinInputs()[0]?.focus(), 200);
+    } catch (e) {
+        // Server unreachable — still show the gate (safer)
+        document.getElementById('pinGate').classList.remove('hidden');
+        document.getElementById('pinError').textContent = 'Server unreachable';
+    }
+}
+
+// ============================================================
+// LOGGING
+// ============================================================
+function rcLog(msg, cls = 'info') {
+    const log = document.getElementById('rcLog');
+    if (!log) return;
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+    const line = document.createElement('div');
+    line.className = 'log-line ' + cls;
+    line.innerHTML = `<span class="time">[${time}]</span>${msg}`;
+    log.appendChild(line);
+    while (log.children.length > 100) log.removeChild(log.firstChild);
+    log.scrollTop = log.scrollHeight;
+}
+function rcClearLog() { document.getElementById('rcLog').innerHTML = ''; rcLog('Log cleared', 'info'); }
+
+// ============================================================
+// API (session cookie carries auth)
+// ============================================================
+async function api(endpoint, method = 'GET', data = null) {
+    try {
+        const options = {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include'
+        };
+        if (data) options.body = JSON.stringify(data);
+        const res = await fetch(API_URL + endpoint, options);
+        if (res.status === 401) {
+            rcLog('🔒 Session expired', 'warn');
+            document.getElementById('pinGate').classList.remove('hidden');
+            pinClear();
+            return null;
+        }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return await res.json();
+    } catch (e) {
+        rcLog('API error: ' + e.message, 'error');
+        return null;
+    }
+}
+
+// ============================================================
+// DEVICES
+// ============================================================
+async function rcRefreshDevices() {
+    const data = await api('/api/devices');
+    if (!data || !data.devices) return;
+    const devices = Object.values(data.devices);
+    const hash = devices.map(d => d.id + '|' + (d.last_seen || '')).sort().join(',');
+
+    if (hash !== lastDeviceIdsHash) {
+        lastDeviceIdsHash = hash;
+        const select = document.getElementById('deviceSelect');
+        const previousValue = select.value;
+        select.innerHTML = '<option value="">-- Select Device --</option>';
+        devices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            const online = isDeviceOnline(d);
+            opt.textContent = `${online ? '🟢' : '⚪'} ${d.name || 'Unknown'} (${d.model || 'Device'})`;
+            select.appendChild(opt);
+        });
+        if (previousValue && devices.some(d => d.id === previousValue)) select.value = previousValue;
+        if (!currentDeviceId && devices.length > 0) rcSelectDevice(devices[0].id);
+        else if (currentDeviceId && !devices.some(d => d.id === currentDeviceId)) {
+            currentDeviceId = null;
+            if (devices.length > 0) rcSelectDevice(devices[0].id);
+        }
+    }
+
+    const list = document.getElementById('deviceList');
+    if (devices.length === 0) {
+        list.innerHTML = '<div style="font-size: 11px; color: var(--text-secondary); padding: 8px;">No devices connected</div>';
+    } else {
+        list.innerHTML = devices.map(d => {
+            const online = isDeviceOnline(d);
+            const active = d.id === currentDeviceId ? 'active' : '';
+            return `
+                <div class="device-card ${active}" onclick="rcSelectDevice('${d.id}')">
+                    <div class="device-name">
+                        ${d.name || 'Unknown'}
+                        <span class="device-badge ${online ? 'online' : 'offline'}">${online ? 'online' : 'offline'}</span>
+                    </div>
+                    <div class="device-model">${d.model || 'Device'} • ${d.android_version || ''}</div>
+                </div>
+            `;
+        }).join('');
+    }
+    updateStatusPill(devices.length > 0);
+}
+
+function isDeviceOnline(device) {
+    if (!device.last_seen) return false;
+    return (Date.now() - new Date(device.last_seen).getTime()) < 20000;
+}
+
+function rcSelectDevice(id) {
+    if (!id || id === currentDeviceId) return;
+    currentDeviceId = id;
+    const select = document.getElementById('deviceSelect');
+    if (select && select.value !== id) select.value = id;
+    document.querySelectorAll('.device-card').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.device-card').forEach(el => {
+        if (el.getAttribute('onclick')?.includes(id)) el.classList.add('active');
+    });
+    lastScreenshotFilename = null;
+    currentDeviceScreen = null;
+    document.getElementById('screenLoading').classList.remove('hidden');
+    rcLog('📱 Selected: ' + id.substring(0, 12), 'success');
+    rcRefreshScreen();
+    rcLoadApps();
+}
+
+function updateStatusPill(connected) {
+    const pill = document.getElementById('statusPill');
+    const text = document.getElementById('statusText');
+    if (connected) { pill.classList.remove('offline'); text.textContent = 'Connected'; }
+    else { pill.classList.add('offline'); text.textContent = 'No devices'; }
+}
+
+// ============================================================
+// SCREEN REFRESH
+// ============================================================
+async function rcRefreshScreen() {
+    if (!currentDeviceId) return;
+    try {
+        const shots = await api('/api/screenshots?limit=10');
+        let s = null;
+        if (Array.isArray(shots)) s = shots.find(x => x.device_id === currentDeviceId) || shots[0];
+        if (!s) { document.getElementById('screenLoading').classList.remove('hidden'); return; }
+        if (s.filename === lastScreenshotFilename) return;
+        lastScreenshotFilename = s.filename;
+
+        const img = document.getElementById('screenImg');
+        const overlay = document.getElementById('screenOverlay');
+        const loading = document.getElementById('screenLoading');
+
+        // Cookie already carries auth — <img> requests send cookies automatically
+        const newSrc = `${API_URL}/api/screenshots/${s.filename}?t=${Date.now()}`;
+        const tempImg = new Image();
+        tempImg.onload = () => {
+            img.src = newSrc;
+            loading.classList.add('hidden');
+            document.getElementById('screenInfoBar').style.display = 'flex';
+            document.getElementById('screenInfo').textContent = s.filename;
+            if (s.width && s.height) currentDeviceScreen = { width: s.width, height: s.height };
+            fpsCounter++;
+            const now = Date.now();
+            if (now - fpsTimestamp > 2000) {
+                const fps = (fpsCounter / ((now - fpsTimestamp) / 1000)).toFixed(1);
+                document.getElementById('fpsBadge').textContent = fps + ' FPS';
+                fpsCounter = 0; fpsTimestamp = now;
+            }
+        };
+        tempImg.onerror = () => rcLog('Failed to load screenshot', 'error');
+        tempImg.src = newSrc;
+
+        requestAnimationFrame(() => {
+            const rect = img.getBoundingClientRect();
+            overlay.style.width = rect.width + 'px';
+            overlay.style.height = rect.height + 'px';
+        });
+    } catch (e) { rcLog('Refresh error: ' + e.message, 'error'); }
+}
+
+function rcToggleAutoRefresh() {
+    autoRefreshEnabled = !autoRefreshEnabled;
+    const btn = document.getElementById('btnRefreshScreen');
+    if (autoRefreshEnabled) {
+        btn.innerHTML = '<i class="fas fa-pause"></i> <span id="refreshLabel">Auto</span>';
+        rcSetRefreshInterval(currentRefreshInterval);
+    } else {
+        btn.innerHTML = '<i class="fas fa-play"></i> <span id="refreshLabel">Manual</span>';
+        if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    }
+}
+function rcSetRefreshInterval(ms) {
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    if (ms > 0) autoRefreshTimer = setInterval(rcRefreshScreen, ms);
+}
+function rcSetQuality(val) {
+    const ms = parseInt(val);
+    currentRefreshInterval = ms;
+    rcLog('Quality: ' + (ms === 0 ? 'Manual' : (1000/ms).toFixed(1) + ' FPS'), 'info');
+    if (autoRefreshEnabled) rcSetRefreshInterval(ms);
+}
+function rcForceScreenshot() {
+    if (!currentDeviceId) return;
+    rcKey('screenshot');
+    setTimeout(rcRefreshScreen, 1500);
+}
+
+// ============================================================
+// TOUCH
+// ============================================================
+function setupScreenInteraction() {
+    const overlay = document.getElementById('screenOverlay');
+    const img = document.getElementById('screenImg');
+    if (!overlay || !img) return;
+    const getNorm = (e) => {
+        const rect = img.getBoundingClientRect();
+        return {
+            x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+            y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+        };
+    };
+    const showRipple = (clientX, clientY) => {
+        const rect = img.getBoundingClientRect();
+        const wrapper = document.getElementById('screenWrapper');
+        const ripple = document.createElement('div');
+        ripple.className = 'touch-indicator';
+        ripple.style.left = (clientX - rect.left) + 'px';
+        ripple.style.top = (clientY - rect.top) + 'px';
+        wrapper.appendChild(ripple);
+        setTimeout(() => ripple.remove(), 500);
+    };
+    overlay.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        startPoint = getNorm(e);
+        isDragging = false;
+        showRipple(e.clientX, e.clientY);
+        pressTimer = setTimeout(() => {
+            if (!isDragging) { rcLongPress(startPoint.x, startPoint.y); pressTimer = null; }
+        }, 600);
+    });
+    overlay.addEventListener('mousemove', (e) => {
+        if (!startPoint) return;
+        const p = getNorm(e);
+        if (Math.sqrt((p.x - startPoint.x)**2 + (p.y - startPoint.y)**2) > 0.02) {
+            isDragging = true;
+            if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        }
+    });
+    overlay.addEventListener('mouseup', (e) => {
+        if (!startPoint) return;
+        const endPoint = getNorm(e);
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; rcTap(endPoint.x, endPoint.y); }
+        else if (isDragging) rcSwipe(startPoint.x, startPoint.y, endPoint.x, endPoint.y, 250);
+        startPoint = null; isDragging = false;
+    });
+    overlay.addEventListener('mouseleave', () => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        startPoint = null; isDragging = false;
+    });
+}
+
+// ============================================================
+// CONTROL ACTIONS
+// ============================================================
+function rcScreenSize() {
+    if (currentDeviceScreen && currentDeviceScreen.width > 0) return currentDeviceScreen;
+    return { width: 1920, height: 1080 };
+}
+async function rcTap(nx, ny) {
+    if (!currentDeviceId) return;
+    const sz = rcScreenSize();
+    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
+    await api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x, y });
+    rcLog(`Tap (${x}, ${y})`, 'info');
+}
+async function rcSwipe(nx1, ny1, nx2, ny2, duration) {
+    if (!currentDeviceId) return;
+    const sz = rcScreenSize();
+    const x1 = Math.round(nx1 * sz.width), y1 = Math.round(ny1 * sz.height);
+    const x2 = Math.round(nx2 * sz.width), y2 = Math.round(ny2 * sz.height);
+    await api('/api/control/swipe', 'POST', { deviceId: currentDeviceId, x1, y1, x2, y2, duration });
+    rcLog(`Swipe`, 'info');
+}
+async function rcLongPress(nx, ny) {
+    if (!currentDeviceId) return;
+    const sz = rcScreenSize();
+    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
+    await api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x, y });
+    rcLog(`Long-press (${x}, ${y})`, 'warn');
+}
+async function rcKey(key) {
+    if (!currentDeviceId) return;
+    const r = await api('/api/control/key', 'POST', { deviceId: currentDeviceId, key });
+    if (r && r.success) {
+        rcLog(`Key: ${key}`, 'success');
+        if (key === 'screenshot') setTimeout(rcRefreshScreen, 1200);
+    }
+}
+async function rcSendText() {
+    if (!currentDeviceId) return;
+    const input = document.getElementById('rcTextInput');
+    const text = input.value;
+    if (!text) return;
+    await api('/api/control/text', 'POST', { deviceId: currentDeviceId, text });
+    rcLog(`Text: "${text}"`, 'success');
+    input.value = '';
+}
+function rcClearText() { for (let i = 0; i < 20; i++) rcKey('backspace'); }
+
+// ============================================================
+// APP DRAWER
+// ============================================================
+async function rcLoadApps() {
+    if (!currentDeviceId) return;
+    const drawer = document.getElementById('appDrawer');
+    drawer.innerHTML = '<div style="grid-column: span 4; text-align: center; padding: 12px;"><div class="spinner-ring" style="margin: 0 auto; width: 24px; height: 24px;"></div></div>';
+    try {
+        let res = await api(`/api/apps/list?deviceId=${encodeURIComponent(currentDeviceId)}`);
+        if (!res || (Array.isArray(res) && res.length === 0)) {
+            res = await api(`/api/apps?deviceId=${encodeURIComponent(currentDeviceId)}&limit=1`);
+        }
+        let apps = [];
+        if (Array.isArray(res)) apps = res;
+        else if (res && Array.isArray(res.apps)) apps = res.apps;
+        if (apps.length === 0) {
+            drawer.innerHTML = '<div style="grid-column: span 4; text-align: center; color: var(--text-secondary); font-size: 11px; padding: 12px;">No apps reported yet.</div>';
+            return;
+        }
+        apps.sort((a, b) => (a.label || a.name || '').localeCompare(b.label || b.name || ''));
+        drawer.innerHTML = apps.map(a => {
+            const name = a.label || a.name || a.package || 'App';
+            const pkg = a.package || a.name || '';
+            const shortName = name.length > 12 ? name.substring(0, 12) + '…' : name;
+            const icon = appIconFor(name);
+            const safePkg = pkg.replace(/'/g, "\\'");
+            const safeName = name.replace(/"/g, '&quot;');
+            return `
+                <div class="app-item" onclick="rcLaunchApp('${safePkg}')" title="${safeName}">
+                    <div class="app-icon" style="background: ${icon.color}"><i class="${icon.icon}"></i></div>
+                    <div class="app-name">${shortName}</div>
+                </div>
+            `;
+        }).join('');
+        rcLog(`✅ Loaded ${apps.length} apps`, 'success');
+    } catch (e) {
+        rcLog('App load error: ' + e.message, 'error');
+    }
+}
+function appIconFor(name) {
+    name = (name || '').toLowerCase();
+    if (name.includes('chrome')) return { icon: 'fab fa-chrome', color: 'linear-gradient(135deg,#4285f4,#ea4335)' };
+    if (name.includes('edge')) return { icon: 'fab fa-edge', color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
+    if (name.includes('firefox')) return { icon: 'fab fa-firefox', color: 'linear-gradient(135deg,#ff7139,#e25822)' };
+    if (name.includes('code')) return { icon: 'fas fa-code', color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
+    if (name.includes('word')) return { icon: 'fas fa-file-word', color: 'linear-gradient(135deg,#2b579a,#1e3f73)' };
+    if (name.includes('excel')) return { icon: 'fas fa-file-excel', color: 'linear-gradient(135deg,#217346,#185c37)' };
+    if (name.includes('explorer') || name.includes('file')) return { icon: 'fas fa-folder', color: 'linear-gradient(135deg,#fbbc04,#f29900)' };
+    if (name.includes('settings')) return { icon: 'fas fa-cog', color: 'linear-gradient(135deg,#5f6368,#3c4043)' };
+    if (name.includes('cmd') || name.includes('command')) return { icon: 'fas fa-terminal', color: 'linear-gradient(135deg,#0d1117,#1c2128)' };
+    return { icon: 'fas fa-cube', color: 'linear-gradient(135deg,var(--blue),var(--purple))' };
+}
+async function rcLaunchApp(packageName) {
+    if (!currentDeviceId || !packageName) return;
+    if (rcLaunchApp._inFlight) return;
+    rcLaunchApp._inFlight = true;
+    try {
+        rcLog(`🚀 Launching: ${packageName}`, 'info');
+        const r = await api('/api/control/launch', 'POST', { deviceId: currentDeviceId, package: packageName });
+        if (r && r.success) {
+            rcLog(`✅ Launch queued`, 'success');
+            setTimeout(rcRefreshScreen, 800);
+            setTimeout(rcRefreshScreen, 2000);
+        } else rcLog(`❌ Launch failed`, 'error');
+    } finally {
+        setTimeout(() => { rcLaunchApp._inFlight = false; }, 1500);
+    }
+}
+
+// ============================================================
+// BOOT (called after auth)
+// ============================================================
+function rcBootAfterAuth() {
+    setupScreenInteraction();
+    rcRefreshDevices();
+    setInterval(rcRefreshDevices, 5000);
+    rcSetRefreshInterval(currentRefreshInterval);
+
+    document.getElementById('rcTextInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') rcSendText();
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT') return;
+        if (e.ctrlKey && e.key === 's') { e.preventDefault(); rcForceScreenshot(); }
+        if (e.ctrlKey && e.key === 'r') { e.preventDefault(); rcRefreshScreen(); }
+    });
+
+    rcLog('UI ready.', 'success');
+}
+</script>
+</body>
+</html>

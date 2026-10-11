@@ -1,0 +1,61 @@
+parental-control-app/
+├── electron/                          # Desktop App
+│   ├── main.js                        # Electron main process
+│   ├── preload.js                     # Preload script
+│   ├── package.json                   # Electron dependencies
+│   └── build/                         # Build outputs
+│       ├── installer/
+│       └── release/
+│
+├── capacitor/                         # Mobile App (Android)
+│   ├── android/
+│   │   ├── app/
+│   │   │   ├── src/main/
+│   │   │   │   ├── java/com/parentalcontrol/
+│   │   │   │   │   ├── MainActivity.java
+│   │   │   │   │   ├── MonitorService.java
+│   │   │   │   │   └── CameraService.java
+│   │   │   │   └── res/
+│   │   │   └── build.gradle
+│   │   └── settings.gradle
+│   ├── capacitor.config.json
+│   └── package.json
+│
+├── web/                              # Shared Web Interface
+│   ├── public/
+│   │   ├── index.html
+│   │   ├── dashboard.html
+│   │   ├── monitoring.html
+│   │   ├── activity.html
+│   │   └── css/style.css
+│   ├── js/
+│   │   ├── app.js
+│   │   ├── dashboard.js
+│   │   ├── monitoring.js
+│   │   └── socket.js
+│   └── assets/
+│
+├── python/                           # Python Native Service
+│   ├── service.py                    # Main service
+│   ├── monitor.py                    # Monitoring engine
+│   ├── collectors/
+│   │   ├── screen.py
+│   │   ├── apps.py
+│   │   ├── browser.py
+│   │   └── files.py
+│   ├── requirements.txt
+│   └── build/                        # Build outputs
+│       ├── windows/
+│       ├── linux/
+│       └── android/                  # Python for Android (Chaquopy)
+│
+├── scripts/                          # Build scripts
+│   ├── build-windows.ps1
+│   ├── build-linux.sh
+│   ├── build-macos.sh
+│   └── build-android.sh
+│
+├── docker/
+│   └── Dockerfile
+│
+└── README.md
