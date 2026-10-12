@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Parental Control Service - GODMODE ULTIMATE v12.0
+PACON Service - v1.0
 + 6-digit PIN authentication (parent dashboard)
 + Agent PIN authentication (agents → server)
 + Session cookies + rate limiting
@@ -42,7 +42,7 @@ from flask_cors import CORS
 
 IS_WINDOWS = platform.system() == 'Windows'
 
-BASE_DIR = Path.home() / '.parental_control'
+BASE_DIR = Path.home() / '.pacon'
 SCREENSHOT_DIR = BASE_DIR / 'screenshots'
 LOGS_DIR = BASE_DIR / 'logs'
 DATA_DIR = BASE_DIR / 'data'
@@ -98,7 +98,7 @@ elif not AGENT_PIN.isdigit() or len(AGENT_PIN) != 6:
 # Session storage
 sessions = {}
 SESSION_TTL = 24 * 3600
-SESSION_COOKIE = "rc_session"
+SESSION_COOKIE = "pacon_session"
 
 # Login rate limiting
 login_attempts = defaultdict(list)
@@ -254,7 +254,7 @@ RATE_LIMITS = {
     'control':   (180, 60),
     'screenshot':(180, 60),
     'login':     (10, 300),
-    'telegram':  (30, 60),   # Telegram sends limited to 30 per minute
+    'telegram':  (30, 60),
 }
 
 def rate_limit(category='default'):
@@ -291,7 +291,7 @@ def ping_server():
     while ping_running:
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'SelfPing/1.0')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.0')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug(f"✅ Self-ping OK: {url}")
@@ -527,7 +527,7 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ Parental Control v12.0</h1>
+    <h1>🛡️ PACON v1.0</h1>
     <p>index.html not found. Please upload it to web/public/</p>
     </body></html>'''
 
@@ -541,9 +541,9 @@ def health_check():
     online_agents = sum(1 for ts in control_devices.values() if now - ts < 10)
     return jsonify({
         "success": True,
-        "service": "Parental Control API",
+        "service": "PACON API",
         "status": "running",
-        "version": "12.0.0",
+        "version": "1.0.0",
         "platform": platform.system(),
         "devices": len(devices),
         "online_agents": online_agents,
@@ -1230,7 +1230,7 @@ def telegram_config_endpoint():
 @rate_limit('telegram')
 def telegram_test():
     r = _telegram_send_message(
-        "🛡️ <b>Parental Control</b>\n\n"
+        "🛡️ <b>PACON</b>\n\n"
         "✅ Telegram integration is connected.\n"
         f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
@@ -1342,7 +1342,7 @@ def handle_exception(e):
 
 def main():
     print("=" * 70)
-    print("  PARENTAL CONTROL v12.0 - PIN + TELEGRAM")
+    print("  PACON SERVICE v1.0 - PIN + TELEGRAM")
     print("=" * 70)
     logger.info(f"Web dir: {WEB_DIR}")
     logger.info(f"Running on Render: {IS_RENDER}")
