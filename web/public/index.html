@@ -23,9 +23,7 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 
-/* ============================================================
-   PIN GATE
-   ============================================================ */
+/* PIN GATE */
 #pinGate {
     position: fixed; inset: 0; z-index: 10000;
     background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
@@ -39,24 +37,11 @@ body {
     box-shadow: 0 20px 60px rgba(0,0,0,0.5);
     animation: pinFadeIn 0.3s ease;
 }
-@keyframes pinFadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-.pin-card .pin-icon {
-    font-size: 48px; color: var(--blue); margin-bottom: 16px;
-}
-.pin-card h2 {
-    font-size: 22px; font-weight: 700; margin-bottom: 8px;
-}
-.pin-card p {
-    color: var(--text-secondary); font-size: 13px;
-    margin-bottom: 28px;
-}
-.pin-inputs {
-    display: flex; gap: 10px; justify-content: center;
-    margin-bottom: 24px;
-}
+@keyframes pinFadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.pin-card .pin-icon { font-size: 48px; color: var(--blue); margin-bottom: 16px; }
+.pin-card h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+.pin-card p { color: var(--text-secondary); font-size: 13px; margin-bottom: 28px; }
+.pin-inputs { display: flex; gap: 10px; justify-content: center; margin-bottom: 24px; }
 .pin-inputs input {
     width: 52px; height: 62px;
     background: var(--bg-secondary);
@@ -69,23 +54,10 @@ body {
     font-family: 'Consolas', monospace;
     caret-color: var(--blue);
 }
-.pin-inputs input:focus {
-    border-color: var(--blue);
-    box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.2);
-}
-.pin-inputs input.filled {
-    border-color: var(--accent);
-    background: rgba(35, 134, 54, 0.08);
-}
-.pin-inputs input.error {
-    border-color: var(--red);
-    animation: shake 0.3s;
-}
-@keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-6px); }
-    75% { transform: translateX(6px); }
-}
+.pin-inputs input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.2); }
+.pin-inputs input.filled { border-color: var(--accent); background: rgba(35, 134, 54, 0.08); }
+.pin-inputs input.error { border-color: var(--red); animation: shake 0.3s; }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 #pinSubmit {
     width: 100%; padding: 12px 24px;
     background: var(--blue); border: none;
@@ -94,22 +66,11 @@ body {
     transition: all 0.15s;
 }
 #pinSubmit:hover { background: #388bfd; transform: translateY(-1px); }
-#pinSubmit:disabled {
-    background: var(--border); cursor: not-allowed;
-    transform: none; opacity: 0.6;
-}
-#pinError {
-    color: var(--red); font-size: 12px;
-    margin-top: 16px; min-height: 18px;
-}
-#pinHint {
-    color: var(--text-secondary); font-size: 11px;
-    margin-top: 20px;
-}
+#pinSubmit:disabled { background: var(--border); cursor: not-allowed; transform: none; opacity: 0.6; }
+#pinError { color: var(--red); font-size: 12px; margin-top: 16px; min-height: 18px; }
+#pinHint { color: var(--text-secondary); font-size: 11px; margin-top: 20px; }
 
-/* ============================================================
-   MAIN UI
-   ============================================================ */
+/* HEADER */
 .rc-header {
     height: 48px; background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
@@ -145,6 +106,7 @@ body {
 }
 .rc-header .header-btn:hover { background: var(--bg-panel); color: var(--text-primary); }
 
+/* BODY */
 .rc-body { display: flex; height: calc(100vh - 48px); overflow: hidden; }
 .rc-sidebar-left {
     width: 220px; background: var(--bg-secondary);
@@ -236,9 +198,11 @@ body {
     0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
     100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
 }
+.touch-indicator.right { background: rgba(218, 54, 51, 0.4); border-color: var(--red); }
+.touch-indicator.double { background: rgba(137, 87, 229, 0.5); border-color: var(--purple); }
 
 .rc-sidebar-right {
-    width: 260px; background: var(--bg-secondary);
+    width: 300px; background: var(--bg-secondary);
     border-left: 1px solid var(--border); padding: 12px;
     overflow-y: auto; flex-shrink: 0;
     display: flex; flex-direction: column; gap: 16px;
@@ -254,6 +218,7 @@ body {
 }
 .control-panel h6 i { color: var(--blue); }
 .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.btn-grid.triple { grid-template-columns: repeat(3, 1fr); }
 .btn-ctrl {
     background: var(--bg-secondary); border: 1px solid var(--border);
     color: var(--text-primary); padding: 8px 6px;
@@ -261,13 +226,15 @@ body {
     display: flex; align-items: center; justify-content: center;
     gap: 6px; transition: all 0.15s; font-weight: 500;
 }
-.btn-ctrl:hover {
-    background: var(--blue); border-color: var(--blue);
-    color: white; transform: translateY(-1px);
-}
+.btn-ctrl:hover { background: var(--blue); border-color: var(--blue); color: white; transform: translateY(-1px); }
 .btn-ctrl.danger:hover { background: var(--red); border-color: var(--red); }
 .btn-ctrl.warning:hover { background: var(--orange); border-color: var(--orange); }
 .btn-ctrl.success:hover { background: var(--accent); border-color: var(--accent); }
+.btn-ctrl.key {
+    font-family: 'Consolas', monospace;
+    font-size: 10px; padding: 6px 4px;
+    min-height: 32px;
+}
 .text-input-group { display: flex; gap: 6px; }
 .text-input-group input {
     flex: 1; background: var(--bg-secondary);
@@ -306,7 +273,7 @@ body {
     text-overflow: ellipsis; white-space: nowrap;
 }
 .rc-log {
-    position: fixed; bottom: 0; left: 220px; right: 260px;
+    position: fixed; bottom: 0; left: 220px; right: 300px;
     background: rgba(13, 17, 23, 0.95);
     border-top: 1px solid var(--border);
     max-height: 120px; overflow-y: auto;
@@ -321,19 +288,23 @@ body {
 .rc-log .log-line.info { color: #79c0ff; }
 .rc-log .log-line.warn { color: #f2cc60; }
 .log-toggle {
-    position: fixed; bottom: 8px; right: 268px;
+    position: fixed; bottom: 8px; right: 308px;
     background: var(--bg-panel); border: 1px solid var(--border);
     color: var(--text-secondary); padding: 4px 10px;
     border-radius: 6px; font-size: 10px;
     cursor: pointer; z-index: 31;
 }
+.tg-input {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    color: var(--text-primary); padding: 6px 8px;
+    border-radius: 6px; font-size: 11px; outline: none; width: 100%;
+}
+.tg-input:focus { border-color: var(--blue); }
 </style>
 </head>
 <body>
 
-<!-- ============================================================
-     PIN GATE
-     ============================================================ -->
+<!-- PIN GATE -->
 <div id="pinGate" class="hidden">
     <div class="pin-card">
         <div class="pin-icon"><i class="fas fa-shield-alt"></i></div>
@@ -353,9 +324,7 @@ body {
     </div>
 </div>
 
-<!-- ============================================================
-     MAIN UI
-     ============================================================ -->
+<!-- HEADER -->
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
@@ -376,6 +345,7 @@ body {
     </div>
 </div>
 
+<!-- BODY -->
 <div class="rc-body">
     <div class="rc-sidebar-left">
         <div>
@@ -415,6 +385,7 @@ body {
     </div>
 
     <div class="rc-sidebar-right">
+        <!-- NAVIGATION -->
         <div class="control-panel">
             <h6><i class="fas fa-gamepad"></i> Navigation</h6>
             <div class="btn-grid">
@@ -427,8 +398,34 @@ body {
             </div>
         </div>
 
+        <!-- KEYBOARD SHORTCUTS -->
         <div class="control-panel">
-            <h6><i class="fas fa-keyboard"></i> Text Input</h6>
+            <h6><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h6>
+            <div class="btn-grid triple">
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+c')" title="Copy">Ctrl+C</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+v')" title="Paste">Ctrl+V</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+x')" title="Cut">Ctrl+X</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+z')" title="Undo">Ctrl+Z</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+a')" title="Select all">Ctrl+A</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+s')" title="Save">Ctrl+S</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('alt+tab')" title="Switch app">Alt+Tab</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('alt+f4')" title="Close window">Alt+F4</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('esc')" title="Escape">Esc</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('tab')" title="Tab">Tab</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('enter')" title="Enter">Enter</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+shift+esc')" title="Task Manager">Task Mgr</button>
+            </div>
+            <div class="btn-grid" style="margin-top:6px;">
+                <button class="btn-ctrl key" onclick="rcHotkey('win+d')" title="Show desktop">Win+D</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('win+e')" title="File Explorer">Win+E</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('win+r')" title="Run dialog">Win+R</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('win+l')" title="Lock">Win+L</button>
+            </div>
+        </div>
+
+        <!-- TEXT INPUT -->
+        <div class="control-panel">
+            <h6><i class="fas fa-font"></i> Text Input</h6>
             <div class="text-input-group">
                 <input type="text" id="rcTextInput" placeholder="Type text..." />
                 <button onclick="rcSendText()"><i class="fas fa-paper-plane"></i></button>
@@ -437,8 +434,14 @@ body {
                 <button class="btn-ctrl" style="flex: 1;" onclick="rcKey('backspace')"><i class="fas fa-delete-left"></i> Backspace</button>
                 <button class="btn-ctrl danger" style="flex: 1;" onclick="rcClearText()"><i class="fas fa-eraser"></i> Clear</button>
             </div>
+            <div style="margin-top: 6px; display: flex; gap: 6px;">
+                <button class="btn-ctrl key" style="flex: 1;" onclick="rcHotkey('enter')">Enter ⏎</button>
+                <button class="btn-ctrl key" style="flex: 1;" onclick="rcHotkey('tab')">Tab ⇥</button>
+                <button class="btn-ctrl key" style="flex: 1;" onclick="rcHotkey('esc')">Esc</button>
+            </div>
         </div>
 
+        <!-- APPS -->
         <div class="control-panel">
             <h6>
                 <i class="fas fa-th"></i> Apps
@@ -453,6 +456,38 @@ body {
             </div>
         </div>
 
+        <!-- TELEGRAM -->
+        <div class="control-panel">
+            <h6>
+                <i class="fab fa-telegram"></i> Telegram
+                <span id="tgStatusBadge" class="badge" style="margin-left:auto;background:#6c757d;color:#fff;font-size:9px;">OFF</span>
+            </h6>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <input type="password" class="tg-input" id="tgBotToken" placeholder="Bot token (from @BotFather)" />
+                <input type="text" class="tg-input" id="tgChatId" placeholder="Chat ID (from @userinfobot)" />
+                <div style="display:flex;gap:6px;">
+                    <button class="btn-ctrl success" style="flex:1;font-size:10px;" onclick="tgSave()">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                    <button class="btn-ctrl" style="flex:1;font-size:10px;" onclick="tgTest()">
+                        <i class="fas fa-paper-plane"></i> Test
+                    </button>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
+                    <button class="btn-ctrl" onclick="tgSendLatestScreenshot()" title="Send latest screenshot">
+                        <i class="fas fa-image"></i> Latest 📸
+                    </button>
+                    <button class="btn-ctrl" onclick="tgSendApps()" title="Send installed apps list">
+                        <i class="fas fa-th"></i> Apps
+                    </button>
+                </div>
+                <button class="btn-ctrl" style="font-size:10px;margin-top:6px;" onclick="tgSendCustomText()">
+                    <i class="fas fa-comment"></i> Send Custom Message
+                </button>
+            </div>
+        </div>
+
+        <!-- STREAM QUALITY -->
         <div class="control-panel">
             <h6><i class="fas fa-tachometer-alt"></i> Stream Quality</h6>
             <select class="form-select form-select-sm" id="streamQuality" style="background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); font-size: 11px;" onchange="rcSetQuality(this.value)">
@@ -489,20 +524,18 @@ let startPoint = null;
 let isDragging = false;
 let lastDeviceIdsHash = '';
 let currentDeviceScreen = null;
-let SESSION_TOKEN = '';   // stored in memory only
+let SESSION_TOKEN = '';
+
+// Double-click detection
+let clickCount = 0;
+let lastClickTime = 0;
 
 // ============================================================
 // PIN GATE
 // ============================================================
 function _pinInputs() { return document.querySelectorAll('.pin-inputs input'); }
-
-function pinAllFilled() {
-    return Array.from(_pinInputs()).every(i => i.value.length === 1);
-}
-
-function pinValue() {
-    return Array.from(_pinInputs()).map(i => i.value).join('');
-}
+function pinAllFilled() { return Array.from(_pinInputs()).every(i => i.value.length === 1); }
+function pinValue() { return Array.from(_pinInputs()).map(i => i.value).join(''); }
 
 function pinClear(showError=false) {
     _pinInputs().forEach(i => {
@@ -526,11 +559,9 @@ function pinUpdateState() {
 async function pinSubmit() {
     const pin = pinValue();
     if (pin.length !== 6) return;
-
     const btn = document.getElementById('pinSubmit');
     btn.disabled = true;
     btn.textContent = 'Verifying...';
-
     try {
         const r = await fetch(API_URL + '/api/auth/login', {
             method: 'POST',
@@ -540,7 +571,7 @@ async function pinSubmit() {
         });
         const data = await r.json();
         if (r.ok && data.success) {
-            SESSION_TOKEN = 'cookie';   // cookie handles auth
+            SESSION_TOKEN = 'cookie';
             document.getElementById('pinGate').classList.add('hidden');
             rcLog('✅ Unlocked', 'success');
             rcBootAfterAuth();
@@ -564,20 +595,14 @@ function rcLogout() {
     location.reload();
 }
 
-// Wire PIN inputs on load
 document.addEventListener('DOMContentLoaded', () => {
     const inputs = _pinInputs();
     inputs.forEach((input, idx) => {
         input.addEventListener('input', (e) => {
-            // Allow only digits
             e.target.value = e.target.value.replace(/[^0-9]/g, '');
-            if (e.target.value.length === 1 && idx < 5) {
-                inputs[idx + 1].focus();
-            }
+            if (e.target.value.length === 1 && idx < 5) inputs[idx + 1].focus();
             pinUpdateState();
-            if (pinAllFilled()) {
-                setTimeout(pinSubmit, 100);
-            }
+            if (pinAllFilled()) setTimeout(pinSubmit, 100);
         });
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Backspace' && !e.target.value && idx > 0) {
@@ -586,9 +611,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 pinUpdateState();
                 e.preventDefault();
             }
-            if (e.key === 'Enter' && pinAllFilled()) {
-                pinSubmit();
-            }
+            if (e.key === 'Enter' && pinAllFilled()) pinSubmit();
         });
         input.addEventListener('paste', (e) => {
             e.preventDefault();
@@ -599,8 +622,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
     document.getElementById('pinSubmit').addEventListener('click', pinSubmit);
-
-    // Check existing session
     rcCheckAuth();
 });
 
@@ -609,13 +630,11 @@ async function rcCheckAuth() {
         const r = await fetch(API_URL + '/api/auth/status', { credentials: 'include' });
         const data = await r.json();
         if (!data.requires_pin) {
-            // Dev mode — no PIN needed
             document.getElementById('pinGate').classList.add('hidden');
             rcBootAfterAuth();
             return;
         }
         if (data.has_session) {
-            // Verify still valid
             const v = await fetch(API_URL + '/api/auth/verify', { credentials: 'include' });
             if (v.ok) {
                 SESSION_TOKEN = 'cookie';
@@ -624,11 +643,9 @@ async function rcCheckAuth() {
                 return;
             }
         }
-        // Show PIN gate
         document.getElementById('pinGate').classList.remove('hidden');
         setTimeout(() => _pinInputs()[0]?.focus(), 200);
     } catch (e) {
-        // Server unreachable — still show the gate (safer)
         document.getElementById('pinGate').classList.remove('hidden');
         document.getElementById('pinError').textContent = 'Server unreachable';
     }
@@ -651,7 +668,7 @@ function rcLog(msg, cls = 'info') {
 function rcClearLog() { document.getElementById('rcLog').innerHTML = ''; rcLog('Log cleared', 'info'); }
 
 // ============================================================
-// API (session cookie carries auth)
+// API
 // ============================================================
 async function api(endpoint, method = 'GET', data = null) {
     try {
@@ -684,7 +701,6 @@ async function rcRefreshDevices() {
     if (!data || !data.devices) return;
     const devices = Object.values(data.devices);
     const hash = devices.map(d => d.id + '|' + (d.last_seen || '')).sort().join(',');
-
     if (hash !== lastDeviceIdsHash) {
         lastDeviceIdsHash = hash;
         const select = document.getElementById('deviceSelect');
@@ -704,7 +720,6 @@ async function rcRefreshDevices() {
             if (devices.length > 0) rcSelectDevice(devices[0].id);
         }
     }
-
     const list = document.getElementById('deviceList');
     if (devices.length === 0) {
         list.innerHTML = '<div style="font-size: 11px; color: var(--text-secondary); padding: 8px;">No devices connected</div>';
@@ -767,12 +782,9 @@ async function rcRefreshScreen() {
         if (!s) { document.getElementById('screenLoading').classList.remove('hidden'); return; }
         if (s.filename === lastScreenshotFilename) return;
         lastScreenshotFilename = s.filename;
-
         const img = document.getElementById('screenImg');
         const overlay = document.getElementById('screenOverlay');
         const loading = document.getElementById('screenLoading');
-
-        // Cookie already carries auth — <img> requests send cookies automatically
         const newSrc = `${API_URL}/api/screenshots/${s.filename}?t=${Date.now()}`;
         const tempImg = new Image();
         tempImg.onload = () => {
@@ -791,7 +803,6 @@ async function rcRefreshScreen() {
         };
         tempImg.onerror = () => rcLog('Failed to load screenshot', 'error');
         tempImg.src = newSrc;
-
         requestAnimationFrame(() => {
             const rect = img.getBoundingClientRect();
             overlay.style.width = rect.width + 'px';
@@ -828,12 +839,13 @@ function rcForceScreenshot() {
 }
 
 // ============================================================
-// TOUCH
+// TOUCH / MOUSE — tap, right-click, double-click, drag, scroll
 // ============================================================
 function setupScreenInteraction() {
     const overlay = document.getElementById('screenOverlay');
     const img = document.getElementById('screenImg');
     if (!overlay || !img) return;
+
     const getNorm = (e) => {
         const rect = img.getBoundingClientRect();
         return {
@@ -841,25 +853,55 @@ function setupScreenInteraction() {
             y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
         };
     };
-    const showRipple = (clientX, clientY) => {
+
+    const showRipple = (clientX, clientY, kind = '') => {
         const rect = img.getBoundingClientRect();
         const wrapper = document.getElementById('screenWrapper');
         const ripple = document.createElement('div');
-        ripple.className = 'touch-indicator';
+        ripple.className = 'touch-indicator' + (kind ? ' ' + kind : '');
         ripple.style.left = (clientX - rect.left) + 'px';
         ripple.style.top = (clientY - rect.top) + 'px';
         wrapper.appendChild(ripple);
         setTimeout(() => ripple.remove(), 500);
     };
+
+    // === MOUSE DOWN ===
     overlay.addEventListener('mousedown', (e) => {
         e.preventDefault();
+
+        // RIGHT-CLICK
+        if (e.button === 2) {
+            const p = getNorm(e);
+            showRipple(e.clientX, e.clientY, 'right');
+            rcRightClick(p.x, p.y);
+            return;
+        }
+
+        // LEFT-CLICK
         startPoint = getNorm(e);
         isDragging = false;
         showRipple(e.clientX, e.clientY);
+
+        // Double-click detection
+        const now = Date.now();
+        clickCount = (now - lastClickTime < 300) ? clickCount + 1 : 1;
+        lastClickTime = now;
+
         pressTimer = setTimeout(() => {
-            if (!isDragging) { rcLongPress(startPoint.x, startPoint.y); pressTimer = null; }
+            if (!isDragging) {
+                if (clickCount >= 2) {
+                    showRipple(e.clientX, e.clientY, 'double');
+                    rcDoubleClick(startPoint.x, startPoint.y);
+                    clickCount = 0;
+                } else {
+                    rcLongPress(startPoint.x, startPoint.y);
+                }
+                pressTimer = null;
+            }
         }, 600);
     });
+
+    // === MOUSE MOVE (drag detection) ===
     overlay.addEventListener('mousemove', (e) => {
         if (!startPoint) return;
         const p = getNorm(e);
@@ -868,17 +910,66 @@ function setupScreenInteraction() {
             if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         }
     });
+
+    // === MOUSE UP ===
     overlay.addEventListener('mouseup', (e) => {
+        if (e.button === 2) return;   // right-click handled on down
         if (!startPoint) return;
         const endPoint = getNorm(e);
-        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; rcTap(endPoint.x, endPoint.y); }
-        else if (isDragging) rcSwipe(startPoint.x, startPoint.y, endPoint.x, endPoint.y, 250);
-        startPoint = null; isDragging = false;
+
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+            if (clickCount >= 2) {
+                rcDoubleClick(endPoint.x, endPoint.y);
+                clickCount = 0;
+            } else {
+                rcTap(endPoint.x, endPoint.y);
+            }
+        } else if (isDragging) {
+            rcSwipe(startPoint.x, startPoint.y, endPoint.x, endPoint.y, 250);
+        }
+
+        startPoint = null;
+        isDragging = false;
     });
+
+    // === MOUSE LEAVE ===
     overlay.addEventListener('mouseleave', () => {
         if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
-        startPoint = null; isDragging = false;
+        startPoint = null;
+        isDragging = false;
     });
+
+    // === SUPPRESS BROWSER CONTEXT MENU ===
+    overlay.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // === WHEEL → SCROLL ===
+    overlay.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const p = getNorm(e);
+        const amount = e.deltaY > 0 ? -3 : 3;
+        rcScroll(p.x, p.y, amount);
+    }, { passive: false });
+
+    // === TOUCH SUPPORT (mobile browsers) ===
+    overlay.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const t = e.touches[0];
+        const me = new MouseEvent('mousedown', {
+            clientX: t.clientX, clientY: t.clientY, button: 0, bubbles: true
+        });
+        overlay.dispatchEvent(me);
+    }, { passive: false });
+
+    overlay.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        const t = e.changedTouches[0];
+        const me = new MouseEvent('mouseup', {
+            clientX: t.clientX, clientY: t.clientY, button: 0, bubbles: true
+        });
+        overlay.dispatchEvent(me);
+    }, { passive: false });
 }
 
 // ============================================================
@@ -888,46 +979,85 @@ function rcScreenSize() {
     if (currentDeviceScreen && currentDeviceScreen.width > 0) return currentDeviceScreen;
     return { width: 1920, height: 1080 };
 }
+
 async function rcTap(nx, ny) {
     if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
     await api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x, y });
-    rcLog(`Tap (${x}, ${y})`, 'info');
+    rcLog(`👆 Tap (${x}, ${y})`, 'info');
 }
+
+async function rcRightClick(nx, ny) {
+    if (!currentDeviceId) return;
+    const sz = rcScreenSize();
+    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
+    await api('/api/control/rightclick', 'POST', { deviceId: currentDeviceId, x, y });
+    rcLog(`🖱️ Right-click (${x}, ${y})`, 'info');
+}
+
+async function rcDoubleClick(nx, ny) {
+    if (!currentDeviceId) return;
+    const sz = rcScreenSize();
+    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
+    await api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x, y });
+    rcLog(`🖱️ Double-click (${x}, ${y})`, 'info');
+}
+
 async function rcSwipe(nx1, ny1, nx2, ny2, duration) {
     if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x1 = Math.round(nx1 * sz.width), y1 = Math.round(ny1 * sz.height);
     const x2 = Math.round(nx2 * sz.width), y2 = Math.round(ny2 * sz.height);
     await api('/api/control/swipe', 'POST', { deviceId: currentDeviceId, x1, y1, x2, y2, duration });
-    rcLog(`Swipe`, 'info');
+    rcLog(`👆 Swipe (${x1},${y1})→(${x2},${y2})`, 'info');
 }
+
 async function rcLongPress(nx, ny) {
     if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
     await api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x, y });
-    rcLog(`Long-press (${x}, ${y})`, 'warn');
+    rcLog(`👆 Long-press (${x}, ${y})`, 'warn');
 }
+
+async function rcScroll(nx, ny, amount) {
+    if (!currentDeviceId) return;
+    const sz = rcScreenSize();
+    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
+    await api('/api/control/scroll', 'POST', { deviceId: currentDeviceId, x, y, amount });
+    rcLog(`🖱️ Scroll ${amount > 0 ? 'up' : 'down'}`, 'info');
+}
+
 async function rcKey(key) {
     if (!currentDeviceId) return;
     const r = await api('/api/control/key', 'POST', { deviceId: currentDeviceId, key });
     if (r && r.success) {
-        rcLog(`Key: ${key}`, 'success');
+        rcLog(`⌨️ Key: ${key}`, 'success');
         if (key === 'screenshot') setTimeout(rcRefreshScreen, 1200);
     }
 }
+
+async function rcHotkey(keys) {
+    if (!currentDeviceId) return;
+    const r = await api('/api/control/hotkey', 'POST', { deviceId: currentDeviceId, keys });
+    if (r && r.success) rcLog(`⌨️ ${keys}`, 'success');
+    else rcLog(`❌ Hotkey failed: ${keys}`, 'error');
+}
+
 async function rcSendText() {
     if (!currentDeviceId) return;
     const input = document.getElementById('rcTextInput');
     const text = input.value;
     if (!text) return;
     await api('/api/control/text', 'POST', { deviceId: currentDeviceId, text });
-    rcLog(`Text: "${text}"`, 'success');
+    rcLog(`⌨️ Text: "${text}"`, 'success');
     input.value = '';
 }
-function rcClearText() { for (let i = 0; i < 20; i++) rcKey('backspace'); }
+
+function rcClearText() {
+    for (let i = 0; i < 20; i++) rcKey('backspace');
+}
 
 // ============================================================
 // APP DRAWER
@@ -973,12 +1103,28 @@ function appIconFor(name) {
     if (name.includes('chrome')) return { icon: 'fab fa-chrome', color: 'linear-gradient(135deg,#4285f4,#ea4335)' };
     if (name.includes('edge')) return { icon: 'fab fa-edge', color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
     if (name.includes('firefox')) return { icon: 'fab fa-firefox', color: 'linear-gradient(135deg,#ff7139,#e25822)' };
+    if (name.includes('brave')) return { icon: 'fas fa-shield-alt', color: 'linear-gradient(135deg,#fb542b,#d64018)' };
     if (name.includes('code')) return { icon: 'fas fa-code', color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
     if (name.includes('word')) return { icon: 'fas fa-file-word', color: 'linear-gradient(135deg,#2b579a,#1e3f73)' };
     if (name.includes('excel')) return { icon: 'fas fa-file-excel', color: 'linear-gradient(135deg,#217346,#185c37)' };
+    if (name.includes('powerpoint')) return { icon: 'fas fa-file-powerpoint', color: 'linear-gradient(135deg,#b7472a,#8b3720)' };
     if (name.includes('explorer') || name.includes('file')) return { icon: 'fas fa-folder', color: 'linear-gradient(135deg,#fbbc04,#f29900)' };
     if (name.includes('settings')) return { icon: 'fas fa-cog', color: 'linear-gradient(135deg,#5f6368,#3c4043)' };
     if (name.includes('cmd') || name.includes('command')) return { icon: 'fas fa-terminal', color: 'linear-gradient(135deg,#0d1117,#1c2128)' };
+    if (name.includes('powershell')) return { icon: 'fas fa-terminal', color: 'linear-gradient(135deg,#012456,#001a3d)' };
+    if (name.includes('notepad')) return { icon: 'fas fa-sticky-note', color: 'linear-gradient(135deg,#fbbc04,#f29900)' };
+    if (name.includes('calculator')) return { icon: 'fas fa-calculator', color: 'linear-gradient(135deg,#5f6368,#3c4043)' };
+    if (name.includes('photos') || name.includes('picture')) return { icon: 'fas fa-images', color: 'linear-gradient(135deg,#4285f4,#1a73e8)' };
+    if (name.includes('spotify')) return { icon: 'fab fa-spotify', color: 'linear-gradient(135deg,#1db954,#158f3e)' };
+    if (name.includes('vlc')) return { icon: 'fas fa-play-circle', color: 'linear-gradient(135deg,#ff8800,#cc6d00)' };
+    if (name.includes('zoom')) return { icon: 'fas fa-video', color: 'linear-gradient(135deg,#2d8cff,#1a6bcc)' };
+    if (name.includes('teams')) return { icon: 'fas fa-users', color: 'linear-gradient(135deg,#5059c9,#3a3fa0)' };
+    if (name.includes('discord')) return { icon: 'fab fa-discord', color: 'linear-gradient(135deg,#5865f2,#4752c4)' };
+    if (name.includes('steam')) return { icon: 'fab fa-steam', color: 'linear-gradient(135deg,#1b2838,#2a475e)' };
+    if (name.includes('python')) return { icon: 'fab fa-python', color: 'linear-gradient(135deg,#3776ab,#2a5c85)' };
+    if (name.includes('docker')) return { icon: 'fab fa-docker', color: 'linear-gradient(135deg,#2496ed,#1a73b8)' };
+    if (name.includes('vpn')) return { icon: 'fas fa-user-shield', color: 'linear-gradient(135deg,#5f6368,#3c4043)' };
+    if (name.includes('antivirus') || name.includes('defender')) return { icon: 'fas fa-shield-alt', color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
     return { icon: 'fas fa-cube', color: 'linear-gradient(135deg,var(--blue),var(--purple))' };
 }
 async function rcLaunchApp(packageName) {
@@ -999,25 +1145,121 @@ async function rcLaunchApp(packageName) {
 }
 
 // ============================================================
-// BOOT (called after auth)
+// TELEGRAM
+// ============================================================
+async function tgLoad() {
+    try {
+        const status = await api('/api/telegram/status');
+        const badge = document.getElementById('tgStatusBadge');
+        if (!badge) return;
+        if (status && status.enabled && status.configured) {
+            badge.textContent = 'ON';
+            badge.style.background = 'var(--accent)';
+        } else {
+            badge.textContent = 'OFF';
+            badge.style.background = '#6c757d';
+        }
+        const cfg = await api('/api/telegram/config');
+        if (cfg && cfg.config) {
+            const tokenField = document.getElementById('tgBotToken');
+            const chatField  = document.getElementById('tgChatId');
+            if (tokenField && cfg.config.bot_token) tokenField.value = cfg.config.bot_token;
+            if (chatField  && cfg.config.chat_id)   chatField.value  = cfg.config.chat_id;
+        }
+    } catch (e) {
+        rcLog('Telegram load error: ' + e.message, 'error');
+    }
+}
+
+async function tgSave() {
+    const botToken = document.getElementById('tgBotToken').value.trim();
+    const chatId   = document.getElementById('tgChatId').value.trim();
+    if (!botToken || !chatId) {
+        rcLog('⚠️ Both bot token and chat ID required', 'warn');
+        return;
+    }
+    const r = await api('/api/telegram/config', 'POST', {
+        bot_token: botToken, chat_id: chatId, enabled: true
+    });
+    if (r && r.success) {
+        rcLog('✅ Telegram config saved', 'success');
+        tgLoad();
+        await api('/api/telegram/send-text', 'POST', {
+            text: '🛡️ <b>Parental Control Dashboard</b>\n\nYour Telegram integration is now active.'
+        });
+    } else {
+        rcLog('❌ Failed to save Telegram config', 'error');
+    }
+}
+
+async function tgTest() {
+    const r = await api('/api/telegram/test', 'POST');
+    if (r && r.success) rcLog('✅ Test message sent to Telegram', 'success');
+    else rcLog('❌ Telegram test failed: ' + (r?.error || 'unknown'), 'error');
+}
+
+async function tgSendLatestScreenshot() {
+    if (!currentDeviceId) { rcLog('⚠️ Select a device first', 'warn'); return; }
+    const shots = await api('/api/screenshots?limit=10');
+    if (!Array.isArray(shots) || shots.length === 0) {
+        rcLog('⚠️ No screenshots available', 'warn');
+        return;
+    }
+    const latest = shots[0];
+    rcLog(`📤 Sending ${latest.filename}...`, 'info');
+    const r = await api(`/api/telegram/send-screenshot/${encodeURIComponent(latest.filename)}?deviceId=${encodeURIComponent(currentDeviceId)}`, 'POST');
+    if (r && r.success) rcLog('✅ Screenshot sent', 'success');
+    else rcLog('❌ Send failed: ' + (r?.error || 'unknown'), 'error');
+}
+
+async function tgSendApps() {
+    if (!currentDeviceId) { rcLog('⚠️ Select a device first', 'warn'); return; }
+    rcLog('📤 Sending apps list...', 'info');
+    const r = await api('/api/telegram/send-apps', 'POST', { deviceId: currentDeviceId });
+    if (r && r.success) rcLog('✅ Apps list sent', 'success');
+    else rcLog('❌ Send failed: ' + (r?.error || 'unknown'), 'error');
+}
+
+async function tgSendScreenshot(filename) {
+    if (!filename) return;
+    const r = await api(`/api/telegram/send-screenshot/${encodeURIComponent(filename)}?deviceId=${encodeURIComponent(currentDeviceId || '')}`, 'POST');
+    if (r && r.success) rcLog(`✅ ${filename} sent`, 'success');
+    else rcLog(`❌ Send failed`, 'error');
+}
+
+async function tgSendCustomText() {
+    const text = prompt('Message to send via Telegram:');
+    if (!text) return;
+    const r = await api('/api/telegram/send-text', 'POST', { text });
+    if (r && r.success) rcLog('✅ Message sent', 'success');
+    else rcLog('❌ Send failed', 'error');
+}
+
+// ============================================================
+// BOOT
 // ============================================================
 function rcBootAfterAuth() {
     setupScreenInteraction();
     rcRefreshDevices();
     setInterval(rcRefreshDevices, 5000);
     rcSetRefreshInterval(currentRefreshInterval);
+    tgLoad();
 
     document.getElementById('rcTextInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') rcSendText();
     });
 
     document.addEventListener('keydown', (e) => {
-        if (e.target.tagName === 'INPUT') return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
         if (e.ctrlKey && e.key === 's') { e.preventDefault(); rcForceScreenshot(); }
         if (e.ctrlKey && e.key === 'r') { e.preventDefault(); rcRefreshScreen(); }
+        if (e.ctrlKey && e.key === 't') { e.preventDefault(); tgSendLatestScreenshot(); }
+        if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); rcKey('back'); }
+        if (e.altKey && e.key === 'Home') { e.preventDefault(); rcKey('home'); }
+        if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('UI ready.', 'success');
+    rcLog('UI ready. Select a device to begin.', 'success');
 }
 </script>
 </body>
