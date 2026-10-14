@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛡️ Remote Control - GODMODE</title>
+<title>🛡️ PACON Remote Control</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -300,6 +300,10 @@ body {
     border-radius: 6px; font-size: 11px; outline: none; width: 100%;
 }
 .tg-input:focus { border-color: var(--blue); }
+.tg-toggle-label {
+    display: flex; align-items: center; gap: 4px; cursor: pointer;
+    font-size: 10px; color: var(--text-secondary);
+}
 </style>
 </head>
 <body>
@@ -308,7 +312,7 @@ body {
 <div id="pinGate" class="hidden">
     <div class="pin-card">
         <div class="pin-icon"><i class="fas fa-shield-alt"></i></div>
-        <h2>Parent Dashboard</h2>
+        <h2>PACON Dashboard</h2>
         <p>Enter your 6-digit PIN to unlock</p>
         <div class="pin-inputs">
             <input type="password" maxlength="1" inputmode="numeric" data-i="0">
@@ -328,7 +332,7 @@ body {
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
-        <span>Remote Control</span>
+        <span>PACON Remote Control</span>
     </div>
     <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
         <option value="">-- Select Device --</option>
@@ -473,6 +477,17 @@ body {
                         <i class="fas fa-paper-plane"></i> Test
                     </button>
                 </div>
+                <!-- ✅ NEW: Online/Offline notification toggles -->
+                <div style="display:flex;gap:12px;align-items:center;margin-top:8px;padding:6px 8px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border);">
+                    <label class="tg-toggle-label">
+                        <input type="checkbox" id="tgNotifyOnline" checked onchange="tgSavePrefs()" />
+                        <span style="color:#3fb950;font-weight:600;">🟢 Online</span>
+                    </label>
+                    <label class="tg-toggle-label">
+                        <input type="checkbox" id="tgNotifyOffline" checked onchange="tgSavePrefs()" />
+                        <span style="color:#f85149;font-weight:600;">🔴 Offline</span>
+                    </label>
+                </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
                     <button class="btn-ctrl" onclick="tgSendLatestScreenshot()" title="Send latest screenshot">
                         <i class="fas fa-image"></i> Latest 📸
@@ -501,7 +516,7 @@ body {
 </div>
 
 <div class="rc-log" id="rcLog">
-    <div class="log-line info"><span class="time">[--:--:--]</span>Remote Control initialized</div>
+    <div class="log-line info"><span class="time">[--:--:--]</span>PACON initialized</div>
 </div>
 <button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
     <i class="fas fa-chevron-down"></i>
@@ -865,28 +880,20 @@ function setupScreenInteraction() {
         setTimeout(() => ripple.remove(), 500);
     };
 
-    // === MOUSE DOWN ===
     overlay.addEventListener('mousedown', (e) => {
         e.preventDefault();
-
-        // RIGHT-CLICK
         if (e.button === 2) {
             const p = getNorm(e);
             showRipple(e.clientX, e.clientY, 'right');
             rcRightClick(p.x, p.y);
             return;
         }
-
-        // LEFT-CLICK
         startPoint = getNorm(e);
         isDragging = false;
         showRipple(e.clientX, e.clientY);
-
-        // Double-click detection
         const now = Date.now();
         clickCount = (now - lastClickTime < 300) ? clickCount + 1 : 1;
         lastClickTime = now;
-
         pressTimer = setTimeout(() => {
             if (!isDragging) {
                 if (clickCount >= 2) {
@@ -901,7 +908,6 @@ function setupScreenInteraction() {
         }, 600);
     });
 
-    // === MOUSE MOVE (drag detection) ===
     overlay.addEventListener('mousemove', (e) => {
         if (!startPoint) return;
         const p = getNorm(e);
@@ -911,12 +917,10 @@ function setupScreenInteraction() {
         }
     });
 
-    // === MOUSE UP ===
     overlay.addEventListener('mouseup', (e) => {
-        if (e.button === 2) return;   // right-click handled on down
+        if (e.button === 2) return;
         if (!startPoint) return;
         const endPoint = getNorm(e);
-
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
@@ -929,22 +933,18 @@ function setupScreenInteraction() {
         } else if (isDragging) {
             rcSwipe(startPoint.x, startPoint.y, endPoint.x, endPoint.y, 250);
         }
-
         startPoint = null;
         isDragging = false;
     });
 
-    // === MOUSE LEAVE ===
     overlay.addEventListener('mouseleave', () => {
         if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         startPoint = null;
         isDragging = false;
     });
 
-    // === SUPPRESS BROWSER CONTEXT MENU ===
     overlay.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // === WHEEL → SCROLL ===
     overlay.addEventListener('wheel', (e) => {
         e.preventDefault();
         const p = getNorm(e);
@@ -952,7 +952,6 @@ function setupScreenInteraction() {
         rcScroll(p.x, p.y, amount);
     }, { passive: false });
 
-    // === TOUCH SUPPORT (mobile browsers) ===
     overlay.addEventListener('touchstart', (e) => {
         e.preventDefault();
         const t = e.touches[0];
@@ -1084,8 +1083,12 @@ async function rcLoadApps() {
             const pkg = a.package || a.name || '';
             const shortName = name.length > 12 ? name.substring(0, 12) + '…' : name;
             const icon = appIconFor(name);
-            const safePkg = pkg.replace(/'/g, "\\'");
-            const safeName = name.replace(/"/g, '&quot;');
+            // ✅ FIX: escape backslashes properly so paths survive round-trip
+            const safePkg = pkg
+                .replace(/\\/g, '\\\\')     // \ → \\
+                .replace(/'/g, "\\'")        // ' → \'
+                .replace(/"/g, '&quot;');   // " → &quot;
+            const safeName = name.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
             return `
                 <div class="app-item" onclick="rcLaunchApp('${safePkg}')" title="${safeName}">
                     <div class="app-icon" style="background: ${icon.color}"><i class="${icon.icon}"></i></div>
@@ -1165,6 +1168,11 @@ async function tgLoad() {
             const chatField  = document.getElementById('tgChatId');
             if (tokenField && cfg.config.bot_token) tokenField.value = cfg.config.bot_token;
             if (chatField  && cfg.config.chat_id)   chatField.value  = cfg.config.chat_id;
+            // ✅ NEW: Restore notification preference toggles
+            const onlineBox = document.getElementById('tgNotifyOnline');
+            const offlineBox = document.getElementById('tgNotifyOffline');
+            if (onlineBox) onlineBox.checked = cfg.config.notify_online !== false;
+            if (offlineBox) offlineBox.checked = cfg.config.notify_offline !== false;
         }
     } catch (e) {
         rcLog('Telegram load error: ' + e.message, 'error');
@@ -1185,10 +1193,25 @@ async function tgSave() {
         rcLog('✅ Telegram config saved', 'success');
         tgLoad();
         await api('/api/telegram/send-text', 'POST', {
-            text: '🛡️ <b>Parental Control Dashboard</b>\n\nYour Telegram integration is now active.'
+            text: '🛡️ <b>PACON Dashboard</b>\n\nYour Telegram integration is now active.'
         });
     } else {
         rcLog('❌ Failed to save Telegram config', 'error');
+    }
+}
+
+// ✅ NEW: Save notification preferences
+async function tgSavePrefs() {
+    const notifyOnline = document.getElementById('tgNotifyOnline')?.checked ?? true;
+    const notifyOffline = document.getElementById('tgNotifyOffline')?.checked ?? true;
+    const r = await api('/api/telegram/config', 'POST', {
+        notify_online: notifyOnline,
+        notify_offline: notifyOffline,
+    });
+    if (r && r.success) {
+        rcLog(`✅ Prefs saved (online: ${notifyOnline ? 'ON' : 'OFF'}, offline: ${notifyOffline ? 'ON' : 'OFF'})`, 'success');
+    } else {
+        rcLog('❌ Failed to save prefs', 'error');
     }
 }
 
