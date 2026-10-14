@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛡️ PACON Remote Control v1.2.3</title>
+<title>🛡️ PACON Remote Control v1.2.4</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -30,9 +30,6 @@ body {
     }
 }
 
-/* ============================================================
-   PIN GATE
-   ============================================================ */
 #pinGate {
     position: fixed; inset: 0; z-index: 10000;
     background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
@@ -71,9 +68,6 @@ body {
 #pinError { color: var(--red); font-size: 12px; margin-top: 16px; min-height: 18px; }
 #pinHint { color: var(--text-secondary); font-size: 11px; margin-top: 20px; }
 
-/* ============================================================
-   HEADER
-   ============================================================ */
 .rc-header {
     height: 48px; background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
@@ -96,6 +90,7 @@ body {
     box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite;
 }
 .rc-header .status-pill.offline .dot { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
+.rc-header .status-pill.pending .dot { background: var(--orange); box-shadow: 0 0 8px var(--orange); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .rc-header .header-btn {
     background: transparent; border: 1px solid var(--border);
@@ -104,9 +99,6 @@ body {
 }
 .rc-header .header-btn:hover { background: var(--bg-panel); color: var(--text-primary); }
 
-/* ============================================================
-   LAYOUT
-   ============================================================ */
 .rc-body { display: flex; height: calc(100vh - 48px); overflow: hidden; }
 .rc-sidebar-left {
     width: 220px; background: var(--bg-secondary);
@@ -148,14 +140,12 @@ body {
 }
 .device-card .device-badge.online { background: rgba(35, 134, 54, 0.2); color: #3fb950; }
 .device-card .device-badge.offline { background: rgba(218, 54, 51, 0.2); color: #f85149; }
+.device-card .device-badge.pending { background: rgba(210, 153, 34, 0.2); color: #d29922; }
 .device-card .device-meta {
     display: flex; justify-content: space-between;
     font-size: 9px; color: var(--text-secondary); margin-top: 3px;
 }
 
-/* ============================================================
-   SCREEN
-   ============================================================ */
 .rc-screen-area {
     flex: 1; background: #000;
     display: flex; align-items: center; justify-content: center;
@@ -195,7 +185,6 @@ body {
 .screen-info-bar .badge { background: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
 .screen-info-bar .badge.warn { background: var(--orange); }
 
-/* Zoom controls */
 .zoom-controls {
     position: absolute; top: 12px; right: 12px;
     display: flex; gap: 4px; z-index: 15;
@@ -226,9 +215,6 @@ body {
 .touch-indicator.right { background: rgba(218, 54, 51, 0.4); border-color: var(--red); }
 .touch-indicator.double { background: rgba(137, 87, 229, 0.5); border-color: var(--purple); }
 
-/* ============================================================
-   RIGHT SIDEBAR
-   ============================================================ */
 .rc-sidebar-right {
     width: 320px; background: var(--bg-secondary);
     border-left: 1px solid var(--border); padding: 12px;
@@ -347,9 +333,6 @@ body {
 .file-item i { width: 14px; text-align: center; }
 .file-item .size { margin-left: auto; color: var(--text-secondary); font-size: 9px; }
 
-/* ============================================================
-   LOG
-   ============================================================ */
 .rc-log {
     position: fixed; bottom: 0; left: 220px; right: 320px;
     background: rgba(13, 17, 23, 0.95);
@@ -372,9 +355,6 @@ body {
     border-radius: 6px; font-size: 10px; cursor: pointer; z-index: 31;
 }
 
-/* ============================================================
-   TOASTS
-   ============================================================ */
 #toastContainer {
     position: fixed; top: 60px; right: 20px;
     z-index: 9999; display: flex; flex-direction: column; gap: 8px;
@@ -404,7 +384,6 @@ body {
     to { opacity: 1; transform: translateX(0); }
 }
 
-/* Sticky device indicator */
 .sticky-device {
     position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
     background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);
@@ -418,6 +397,7 @@ body {
     background: var(--accent); box-shadow: 0 0 6px var(--accent);
 }
 .sticky-device.offline .dot { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.sticky-device.pending .dot { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
 
 .tg-input {
     background: var(--bg-secondary); border: 1px solid var(--border);
@@ -440,13 +420,13 @@ body {
     color: var(--text-secondary);
 }
 .agent-info .row .val { color: var(--text-primary); }
+.agent-info .row .val.pending { color: var(--orange); }
+.agent-info .row .val.online { color: #3fb950; }
+.agent-info .row .val.offline { color: #f85149; }
 </style>
 </head>
 <body>
 
-<!-- ============================================================
-     PIN GATE
-     ============================================================ -->
 <div id="pinGate" class="hidden">
     <div class="pin-card">
         <div class="pin-icon"><i class="fas fa-shield-alt"></i></div>
@@ -466,13 +446,10 @@ body {
     </div>
 </div>
 
-<!-- ============================================================
-     HEADER
-     ============================================================ -->
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
-        <span>PACON Remote Control v1.2.3</span>
+        <span>PACON Remote Control v1.2.4</span>
     </div>
     <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
         <option value="">-- Select Device --</option>
@@ -490,12 +467,8 @@ body {
     </div>
 </div>
 
-<!-- ============================================================
-     BODY
-     ============================================================ -->
 <div class="rc-body">
 
-    <!-- LEFT SIDEBAR -->
     <div class="rc-sidebar-left">
         <div>
             <div class="sidebar-section-title">Devices</div>
@@ -519,14 +492,13 @@ body {
         </div>
     </div>
 
-    <!-- SCREEN -->
     <div class="rc-screen-area">
         <div class="rc-screen-wrapper" id="screenWrapper">
             <img id="screenImg" alt="Device screen" />
             <div id="screenOverlay"></div>
             <div class="rc-screen-loading" id="screenLoading">
                 <div class="spinner-ring"></div>
-                <div style="font-size: 12px; color: var(--text-secondary);">Waiting for screen...</div>
+                <div style="font-size: 12px; color: var(--text-secondary);" id="screenLoadingText">Waiting for screen...</div>
             </div>
             <div class="zoom-controls">
                 <button onclick="rcZoom(-1)" title="Zoom out"><i class="fas fa-search-minus"></i></button>
@@ -540,10 +512,8 @@ body {
         </div>
     </div>
 
-    <!-- RIGHT SIDEBAR -->
     <div class="rc-sidebar-right">
 
-        <!-- NAVIGATION -->
         <div class="control-panel">
             <h6><i class="fas fa-gamepad"></i> Navigation</h6>
             <div class="btn-grid">
@@ -556,7 +526,6 @@ body {
             </div>
         </div>
 
-        <!-- KEYBOARD SHORTCUTS -->
         <div class="control-panel">
             <h6><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h6>
             <div class="btn-grid triple">
@@ -581,7 +550,6 @@ body {
             </div>
         </div>
 
-        <!-- TEXT INPUT -->
         <div class="control-panel">
             <h6><i class="fas fa-font"></i> Text Input</h6>
             <div class="text-input-group">
@@ -599,7 +567,6 @@ body {
             </div>
         </div>
 
-        <!-- GODMODE -->
         <div class="control-panel">
             <h6><i class="fas fa-bolt"></i> Godmode</h6>
             <div class="btn-grid">
@@ -616,7 +583,6 @@ body {
             </div>
         </div>
 
-        <!-- FILE BROWSER -->
         <div class="control-panel">
             <h6><i class="fas fa-folder-open"></i> File Browser</h6>
             <div class="breadcrumb-trail" id="rcBreadcrumb">
@@ -640,7 +606,6 @@ body {
             </div>
         </div>
 
-        <!-- APPS -->
         <div class="control-panel">
             <h6>
                 <i class="fas fa-th"></i> Apps
@@ -654,7 +619,6 @@ body {
             </div>
         </div>
 
-        <!-- AGENT INFO + TELEGRAM -->
         <div class="control-panel">
             <h6><i class="fas fa-info-circle"></i> Agent Info</h6>
             <div class="agent-info" id="agentInfo">
@@ -705,7 +669,6 @@ body {
             </div>
         </div>
 
-        <!-- STREAM QUALITY -->
         <div class="control-panel">
             <h6><i class="fas fa-tachometer-alt"></i> Stream Quality</h6>
             <select class="form-select form-select-sm" id="streamQuality" style="background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); font-size: 11px;" onchange="rcSetQuality(this.value)">
@@ -719,21 +682,18 @@ body {
     </div>
 </div>
 
-<!-- STICKY DEVICE INDICATOR -->
 <div class="sticky-device offline" id="stickyDevice" style="display: none;">
     <div class="dot"></div>
     <span id="stickyDeviceText">—</span>
 </div>
 
-<!-- LOG -->
 <div class="rc-log" id="rcLog">
-    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.3 initialized</div>
+    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.4 initialized</div>
 </div>
 <button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
     <i class="fas fa-chevron-down"></i>
 </button>
 
-<!-- TOASTS -->
 <div id="toastContainer"></div>
 
 <script>
@@ -760,13 +720,11 @@ let showHiddenFiles        = false;
 let currentAppList         = [];
 let appLoadInFlight        = false;
 let lastStatusPoll         = 0;
+let emptyDeviceListRetries = 0;
 
 const pendingCommands = new Map();
+const deviceState = new Map();
 
-// Per-device state cache
-const deviceState = new Map();  // deviceId -> { lastScreenshotFilename, screenSize }
-
-// User preferences (persisted to localStorage)
 const prefs = {
     refreshInterval: 1000,
     notifyOnline: true,
@@ -947,7 +905,7 @@ function rcLog(msg, cls = 'info') {
 function rcClearLog() { document.getElementById('rcLog').innerHTML = ''; rcLog('Log cleared', 'info'); }
 
 // ============================================================
-// API — with 401 recovery
+// API
 // ============================================================
 let authRecoveryInFlight = false;
 
@@ -995,7 +953,6 @@ async function rcSendAndTrack(endpoint, body, label, options = {}) {
     }
     const r = await api(endpoint, 'POST', { deviceId: currentDeviceId, ...body });
 
-    // Fast-fail: server refused because device is offline
     if (r && r.success === false && r.offline) {
         rcLog(`❌ ${label} — ${r.error}`, 'error');
         toast(`${label} — device offline`, 'error');
@@ -1042,37 +999,70 @@ async function pollCommandResult(cmdId, attempts = 25, silentSuccess = false) {
 }
 
 // ============================================================
+// DEVICE CLASSIFICATION
+// ============================================================
+function deviceStatus(d) {
+    if (d.pending) return 'pending';
+    if (d.online) return 'online';
+    return 'offline';
+}
+
+function isDeviceOnline(device) {
+    // v1.2.4: trust the server's `online` boolean exclusively
+    if (typeof device.online === 'boolean') return device.online;
+    if (device.pending) return false;
+    if (typeof device.last_poll_secs === 'number') return device.last_poll_secs < 20;
+    if (!device.last_seen) return false;
+    return (Date.now() - new Date(device.last_seen).getTime()) < 20000;
+}
+
+function isDeviceSelectable(d) {
+    // v1.2.4: pending devices can be selected (they just can't receive commands)
+    return true;
+}
+
+// ============================================================
 // DEVICES
 // ============================================================
 async function rcRefreshDevices() {
     const data = await api('/api/devices');
-    if (!data || !data.devices) return;
-    const devices = Object.values(data.devices).filter(d => {
-        if (!d.last_seen) return false;
-        const age = Date.now() - new Date(d.last_seen).getTime();
-        return age < 120000;   // 2-min client-side stale check
-    });
+    if (!data || !data.devices) {
+        // Transient failure — retry a few times with backoff
+        if (emptyDeviceListRetries < 5) {
+            emptyDeviceListRetries++;
+            setTimeout(rcRefreshDevices, 1000 * emptyDeviceListRetries);
+        }
+        return;
+    }
+    emptyDeviceListRetries = 0;
 
-    const hash = devices.map(d => d.id + '|' + (d.last_seen || '')).sort().join(',');
+    // v1.2.4: take EVERYTHING the server returns — it now filters stale
+    // devices by poll age, and pending devices are legit
+    const devices = Object.values(data.devices);
+
+    const hash = devices.map(d => d.id + '|' + (d.last_poll_secs || '') + '|' + deviceStatus(d)).sort().join(',');
     if (hash !== lastDeviceIdsHash) {
         lastDeviceIdsHash = hash;
         const select = document.getElementById('deviceSelect');
         const previousValue = select.value;
         select.innerHTML = '<option value="">-- Select Device --</option>';
         devices.forEach(d => {
+            const st = deviceStatus(d);
             const opt = document.createElement('option');
             opt.value = d.id;
-            const online = isDeviceOnline(d);
-            opt.textContent = `${online ? '🟢' : '⚪'} ${d.name || 'Unknown'} (${d.model || 'Device'})`;
+            const dot = st === 'online' ? '🟢' : st === 'pending' ? '🟡' : '⚪';
+            const tag = st === 'pending' ? ' [pending]' : '';
+            opt.textContent = `${dot} ${d.name || 'Unknown'} (${d.model || 'Device'})${tag}`;
             select.appendChild(opt);
         });
 
         if (devices.length === 0) {
             currentDeviceId = null;
         } else if (!currentDeviceId || !devices.some(d => d.id === currentDeviceId)) {
-            // Prefer online device
-            const onlineDevice = devices.find(d => isDeviceOnline(d));
-            rcSelectDevice((onlineDevice || devices[0]).id);
+            // Prefer online, then pending, then any
+            const onlineDevice = devices.find(d => deviceStatus(d) === 'online');
+            const pendingDevice = devices.find(d => deviceStatus(d) === 'pending');
+            rcSelectDevice((onlineDevice || pendingDevice || devices[0]).id);
         } else {
             select.value = currentDeviceId;
         }
@@ -1080,19 +1070,27 @@ async function rcRefreshDevices() {
 
     const list = document.getElementById('deviceList');
     if (devices.length === 0) {
-        list.innerHTML = '<div style="font-size: 11px; color: var(--text-secondary); padding: 8px;">No devices connected</div>';
+        list.innerHTML = `
+            <div style="font-size: 11px; color: var(--text-secondary); padding: 8px;">
+                No devices connected.<br>
+                <span style="font-size: 10px;">Waiting for the agent to register…</span>
+            </div>`;
     } else {
         list.innerHTML = devices.map(d => {
-            const online = isDeviceOnline(d);
+            const st = deviceStatus(d);
             const active = d.id === currentDeviceId ? 'active' : '';
             const shortId = escapeHtml((d.id || '').substring(0, 8));
-            const lastPoll = d.last_poll_secs !== undefined && d.last_poll_secs !== null
-                ? `${d.last_poll_secs}s ago` : '—';
+            let lastPoll = '—';
+            if (d.last_poll_secs !== undefined && d.last_poll_secs !== null) {
+                lastPoll = `${d.last_poll_secs}s ago`;
+            } else if (st === 'pending') {
+                lastPoll = 'registering';
+            }
             return `
                 <div class="device-card ${active}" onclick="rcSelectDevice('${d.id}')">
                     <div class="device-name">
                         ${escapeHtml(d.name || 'Unknown')}
-                        <span class="device-badge ${online ? 'online' : 'offline'}">${online ? 'online' : 'offline'}</span>
+                        <span class="device-badge ${st}">${st}</span>
                     </div>
                     <div class="device-model">${escapeHtml(d.model || 'Device')}</div>
                     <div class="device-meta">
@@ -1103,7 +1101,10 @@ async function rcRefreshDevices() {
             `;
         }).join('');
     }
-    updateStatusPill(devices.some(d => isDeviceOnline(d)));
+
+    const anyOnline = devices.some(d => deviceStatus(d) === 'online');
+    const anyPending = devices.some(d => deviceStatus(d) === 'pending');
+    updateStatusPill(devices.length > 0, anyOnline, anyPending);
 }
 
 function rcCopyDeviceId(id) {
@@ -1116,11 +1117,6 @@ function rcCopyDeviceId(id) {
     }
 }
 
-function isDeviceOnline(device) {
-    if (!device.last_seen) return false;
-    return (Date.now() - new Date(device.last_seen).getTime()) < 20000;
-}
-
 function rcSelectDevice(id) {
     if (!id || id === currentDeviceId) return;
     currentDeviceId = id;
@@ -1131,11 +1127,9 @@ function rcSelectDevice(id) {
         if (el.getAttribute('onclick')?.includes(id)) el.classList.add('active');
     });
 
-    // Restore per-device state
     const ds = deviceState.get(id) || {};
     currentDeviceScreen = ds.screenSize || null;
 
-    // Clear UI immediately
     const drawer = document.getElementById('appDrawer');
     drawer.innerHTML = '<div class="app-empty">Loading apps…</div>';
     document.getElementById('appSearch').value = '';
@@ -1147,6 +1141,7 @@ function rcSelectDevice(id) {
         '<span style="color:var(--text-secondary);font-size:10px;">No path yet</span>';
 
     document.getElementById('screenLoading').classList.remove('hidden');
+    document.getElementById('screenLoadingText').textContent = 'Waiting for screen...';
     document.getElementById('screenImg').src = '';
     updateStickyDevice(id);
     updateActionButtons();
@@ -1162,24 +1157,38 @@ function updateStickyDevice(id) {
     const text = document.getElementById('stickyDeviceText');
     if (!id) { el.style.display = 'none'; return; }
     const ds = deviceState.get(id) || {};
-    text.textContent = `${ds.name || id.substring(0, 8)} — ${ds.online ? 'online' : 'offline'}`;
-    el.classList.toggle('offline', !ds.online);
+    const st = ds.status || 'offline';
+    text.textContent = `${ds.name || id.substring(0, 8)} — ${st}`;
+    el.classList.remove('offline', 'pending');
+    if (st === 'offline') el.classList.add('offline');
+    else if (st === 'pending') el.classList.add('pending');
     el.style.display = 'flex';
 }
 
 function updateActionButtons() {
     const ds = deviceState.get(currentDeviceId) || {};
-    const online = ds.online;
+    const canAct = ds.status === 'online';
     document.querySelectorAll('.menu-item[id^="qmi-"]').forEach(el => {
-        el.classList.toggle('disabled', !online);
+        el.classList.toggle('disabled', !canAct);
     });
 }
 
-function updateStatusPill(connected) {
+function updateStatusPill(hasDevices, anyOnline, anyPending) {
     const pill = document.getElementById('statusPill');
     const text = document.getElementById('statusText');
-    if (connected) { pill.classList.remove('offline'); text.textContent = 'Connected'; }
-    else { pill.classList.add('offline'); text.textContent = 'No devices'; }
+    pill.classList.remove('offline', 'pending');
+    if (!hasDevices) {
+        pill.classList.add('offline');
+        text.textContent = 'No devices';
+    } else if (anyOnline) {
+        text.textContent = 'Connected';
+    } else if (anyPending) {
+        pill.classList.add('pending');
+        text.textContent = 'Registering…';
+    } else {
+        pill.classList.add('offline');
+        text.textContent = 'All offline';
+    }
 }
 
 // ============================================================
@@ -1188,10 +1197,24 @@ function updateStatusPill(connected) {
 async function rcRefreshScreen() {
     if (!currentDeviceId) return;
     try {
-        const shots = await api('/api/screenshots?limit=10');
+        const shots = await api('/api/screenshots?limit=20');
         let s = null;
-        if (Array.isArray(shots)) s = shots.find(x => x.device_id === currentDeviceId) || shots[0];
-        if (!s) { document.getElementById('screenLoading').classList.remove('hidden'); return; }
+        if (Array.isArray(shots) && shots.length > 0) {
+            // Prefer shots explicitly tagged with our device_id
+            s = shots.find(x => x.device_id === currentDeviceId);
+            // Fallback: newest shot (server doesn't always tag device_id)
+            if (!s) s = shots[0];
+        }
+        if (!s) {
+            document.getElementById('screenLoading').classList.remove('hidden');
+            const ds = deviceState.get(currentDeviceId) || {};
+            const st = ds.status || 'offline';
+            document.getElementById('screenLoadingText').textContent =
+                st === 'pending' ? 'Waiting for agent to send first screenshot…' :
+                st === 'offline' ? 'Device offline — no screenshots' :
+                'Waiting for screen...';
+            return;
+        }
 
         const ds = deviceState.get(currentDeviceId) || {};
         if (s.filename === ds.lastScreenshotFilename) return;
@@ -1260,7 +1283,6 @@ function rcForceScreenshot() {
     setTimeout(rcRefreshScreen, 1500);
 }
 
-// Zoom
 function rcZoom(direction) {
     if (direction === 0) currentZoom = 1.0;
     else if (direction > 0) currentZoom = Math.min(currentZoom * 1.25, 4);
@@ -1300,8 +1322,9 @@ function setupScreenInteraction() {
 
     overlay.addEventListener('mousedown', (e) => {
         e.preventDefault();
-        if (!isDeviceOnline(deviceState.get(currentDeviceId) || {})) {
-            toast('Device offline', 'warn', 1500);
+        const ds = deviceState.get(currentDeviceId) || {};
+        if (ds.status !== 'online') {
+            toast(`Device is ${ds.status || 'offline'}`, 'warn', 1500);
             return;
         }
         if (e.button === 2) {
@@ -1589,7 +1612,6 @@ function updateBreadcrumb(path) {
         bc.innerHTML = '<span style="color:var(--text-secondary);font-size:10px;">No path yet</span>';
         return;
     }
-    // Split path into crumbs
     const parts = path.replace(/\//g, '\\').split('\\').filter(p => p);
     let accum = '';
     const crumbs = parts.map((p, i) => {
@@ -1689,8 +1711,13 @@ function renderApps() {
         });
     }
     if (apps.length === 0) {
+        const ds = deviceState.get(currentDeviceId) || {};
+        const st = ds.status || 'offline';
         drawer.innerHTML = `<div class="app-empty">
-            ${currentAppList.length === 0 ? 'No apps reported yet. Waiting for the agent…' : 'No matching apps.'}
+            ${currentAppList.length === 0
+                ? (st === 'pending' ? 'Device is registering — apps will appear shortly.'
+                                    : 'No apps reported yet. Waiting for the agent…')
+                : 'No matching apps.'}
         </div>`;
         return;
     }
@@ -1785,16 +1812,20 @@ async function rcUpdateAgentInfo() {
     }
     const lastPoll = d.last_poll_secs !== null && d.last_poll_secs !== undefined
         ? `${d.last_poll_secs}s ago` : 'never';
+    let statusText, statusClass;
+    if (d.online) { statusText = 'online'; statusClass = 'online'; }
+    else if (!d.has_polled) { statusText = 'pending'; statusClass = 'pending'; }
+    else { statusText = 'offline'; statusClass = 'offline'; }
     info.innerHTML = `
-        <div class="row"><span>Status:</span><span class="val" style="color:${d.online ? '#3fb950' : '#f85149'}">${d.online ? 'online' : 'offline'}</span></div>
+        <div class="row"><span>Status:</span><span class="val ${statusClass}">${statusText}</span></div>
         <div class="row"><span>PID:</span><span class="val">${d.agent_pid || '—'}</span></div>
         <div class="row"><span>Version:</span><span class="val">${escapeHtml(d.agent_version || '—')}</span></div>
         <div class="row"><span>Last poll:</span><span class="val">${lastPoll}</span></div>
     `;
-    // Update device state
     const ds = deviceState.get(currentDeviceId) || {};
     ds.online = d.online;
     ds.name = d.name;
+    ds.status = d.online ? 'online' : (!d.has_polled ? 'pending' : 'offline');
     deviceState.set(currentDeviceId, ds);
     updateStickyDevice(currentDeviceId);
     updateActionButtons();
@@ -1812,17 +1843,28 @@ async function rcShowDiagnostics() {
     } else {
         for (const [id, d] of Object.entries(data.devices || {})) {
             lines.push(`Device: ${id}`);
-            lines.push(`  Name:     ${d.name || '?'}`);
-            lines.push(`  Model:    ${d.model || '?'}`);
-            lines.push(`  Status:   ${d.online ? 'ONLINE' : 'OFFLINE'} (${d.last_poll_secs}s ago)`);
-            lines.push(`  Agent:    pid=${d.agent_pid} v=${d.agent_version}`);
-            lines.push(`  Apps:     ${d.app_count}`);
+            lines.push(`  Name:       ${d.name || '?'}`);
+            lines.push(`  Model:      ${d.model || '?'}`);
+            lines.push(`  Hostname:   ${d.hostname || '?'}`);
+            lines.push(`  Public IP:  ${d.public_ip || '?'}`);
+            lines.push(`  Has polled: ${d.has_polled ? 'YES' : 'NO'}`);
+            lines.push(`  Status:     ${d.online ? 'ONLINE' : 'OFFLINE'} (last poll ${d.last_poll_secs}s ago)`);
+            lines.push(`  Agent:      pid=${d.agent_pid} v=${d.agent_version}`);
+            lines.push(`  Apps:       ${d.app_count}`);
             lines.push('');
         }
+    }
+    if (data.fingerprints && Object.keys(data.fingerprints).length > 0) {
+        lines.push('--- Fingerprints (hostname|ip → canonical ID) ---');
+        for (const [fp, cid] of Object.entries(data.fingerprints)) {
+            lines.push(`  ${fp} → ${cid}`);
+        }
+        lines.push('');
     }
     lines.push(`Server time: ${data.server_now}`);
     lines.push(`Offline threshold: ${data.offline_threshold}s`);
     lines.push(`Purge grace: ${data.offline_grace}s`);
+    lines.push(`Pending TTL: ${data.pending_ttl}s`);
     alert(lines.join('\n'));
 }
 
@@ -1971,11 +2013,9 @@ function rcBootAfterAuth() {
     rcSetRefreshInterval(currentRefreshInterval);
     tgLoad();
 
-    // Restore stream quality from prefs
     const qSelect = document.getElementById('streamQuality');
     if (qSelect) qSelect.value = String(currentRefreshInterval);
 
-    // Hidden files toggle restore
     if (showHiddenFiles) {
         document.getElementById('rcHiddenToggle').classList.add('active');
         document.getElementById('rcHiddenToggle').querySelector('i').className = 'fas fa-eye';
@@ -1988,40 +2028,47 @@ function rcBootAfterAuth() {
         if (!data || !data.devices) return;
         const d = data.devices[currentDeviceId];
         if (!d) {
-            // Device disappeared
             const statusText = document.getElementById('statusText');
             const pill = document.getElementById('statusPill');
+            pill.classList.remove('pending');
             pill.classList.add('offline');
             statusText.textContent = 'Device gone';
             const ds = deviceState.get(currentDeviceId) || {};
+            ds.status = 'offline';
             ds.online = false;
             deviceState.set(currentDeviceId, ds);
             updateStickyDevice(currentDeviceId);
             updateActionButtons();
             return;
         }
-        const lastSeenMs = d.last_seen
-            ? (Date.now() - new Date(d.last_seen).getTime())
-            : Infinity;
-        const offline = lastSeenMs > 20000;
+        const st = d.pending ? 'pending' : (d.online ? 'online' : 'offline');
         const statusText = document.getElementById('statusText');
         const pill = document.getElementById('statusPill');
-        if (offline) {
-            pill.classList.add('offline');
-            statusText.textContent = `Offline ${Math.floor(lastSeenMs / 1000)}s`;
-        } else {
-            pill.classList.remove('offline');
+        pill.classList.remove('offline', 'pending');
+
+        if (st === 'online') {
             statusText.textContent = 'Connected';
+        } else if (st === 'pending') {
+            pill.classList.add('pending');
+            statusText.textContent = 'Registering…';
+        } else {
+            pill.classList.add('offline');
+            const lastSeenMs = d.last_seen
+                ? (Date.now() - new Date(d.last_seen).getTime())
+                : Infinity;
+            statusText.textContent = isFinite(lastSeenMs)
+                ? `Offline ${Math.floor(lastSeenMs / 1000)}s`
+                : 'Offline';
         }
 
         const ds = deviceState.get(currentDeviceId) || {};
-        ds.online = !offline;
+        ds.online = !!d.online;
+        ds.status = st;
         ds.name = d.name;
         deviceState.set(currentDeviceId, ds);
         updateStickyDevice(currentDeviceId);
         updateActionButtons();
 
-        // Refresh agent info every ~10s
         const now = Date.now();
         if (now - lastStatusPoll > 10000) {
             lastStatusPoll = now;
@@ -2029,12 +2076,10 @@ function rcBootAfterAuth() {
         }
     }, 3000);
 
-    // Text input Enter handler
     document.getElementById('rcTextInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') rcSendText();
     });
 
-    // Path input Ctrl+L focus
     document.getElementById('rcPathInput').addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.key === 'l') {
             e.preventDefault();
@@ -2042,7 +2087,6 @@ function rcBootAfterAuth() {
         }
     });
 
-    // Global keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
         if (e.ctrlKey && e.shiftKey && e.key === 'S') { e.preventDefault(); rcForceScreenshot(); }
@@ -2054,7 +2098,7 @@ function rcBootAfterAuth() {
         if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('✅ UI v1.2.3 ready. Select a device to begin.', 'success');
+    rcLog('✅ UI v1.2.4 ready. Select a device to begin.', 'success');
 }
 </script>
 </body>

