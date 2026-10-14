@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛡️ PACON Remote Control</title>
+<title>🛡️ PACON Remote Control v1.2</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -23,7 +23,9 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 
-/* PIN GATE */
+/* ============================================================
+   PIN GATE
+   ============================================================ */
 #pinGate {
     position: fixed; inset: 0; z-index: 10000;
     background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
@@ -32,8 +34,7 @@ body {
 #pinGate.hidden { display: none; }
 .pin-card {
     background: var(--bg-panel); border: 1px solid var(--border);
-    border-radius: 16px; padding: 40px 48px;
-    min-width: 400px; text-align: center;
+    border-radius: 16px; padding: 40px 48px; min-width: 400px; text-align: center;
     box-shadow: 0 20px 60px rgba(0,0,0,0.5);
     animation: pinFadeIn 0.3s ease;
 }
@@ -43,70 +44,62 @@ body {
 .pin-card p { color: var(--text-secondary); font-size: 13px; margin-bottom: 28px; }
 .pin-inputs { display: flex; gap: 10px; justify-content: center; margin-bottom: 24px; }
 .pin-inputs input {
-    width: 52px; height: 62px;
-    background: var(--bg-secondary);
-    border: 2px solid var(--border);
-    border-radius: 10px;
-    color: var(--text-primary);
-    font-size: 26px; font-weight: 700;
-    text-align: center; outline: none;
-    transition: all 0.15s;
-    font-family: 'Consolas', monospace;
-    caret-color: var(--blue);
+    width: 52px; height: 62px; background: var(--bg-secondary);
+    border: 2px solid var(--border); border-radius: 10px;
+    color: var(--text-primary); font-size: 26px; font-weight: 700;
+    text-align: center; outline: none; transition: all 0.15s;
+    font-family: 'Consolas', monospace; caret-color: var(--blue);
 }
 .pin-inputs input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.2); }
 .pin-inputs input.filled { border-color: var(--accent); background: rgba(35, 134, 54, 0.08); }
 .pin-inputs input.error { border-color: var(--red); animation: shake 0.3s; }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 #pinSubmit {
-    width: 100%; padding: 12px 24px;
-    background: var(--blue); border: none;
-    color: white; font-size: 15px; font-weight: 600;
-    border-radius: 8px; cursor: pointer;
-    transition: all 0.15s;
+    width: 100%; padding: 12px 24px; background: var(--blue); border: none;
+    color: white; font-size: 15px; font-weight: 600; border-radius: 8px;
+    cursor: pointer; transition: all 0.15s;
 }
 #pinSubmit:hover { background: #388bfd; transform: translateY(-1px); }
 #pinSubmit:disabled { background: var(--border); cursor: not-allowed; transform: none; opacity: 0.6; }
 #pinError { color: var(--red); font-size: 12px; margin-top: 16px; min-height: 18px; }
 #pinHint { color: var(--text-secondary); font-size: 11px; margin-top: 20px; }
 
-/* HEADER */
+/* ============================================================
+   HEADER
+   ============================================================ */
 .rc-header {
     height: 48px; background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
-    display: flex; align-items: center;
-    padding: 0 16px; gap: 12px; flex-shrink: 0;
+    display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0;
 }
 .rc-header .brand { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px; }
 .rc-header .brand i { color: var(--blue); font-size: 18px; }
 .rc-header .device-select {
     background: var(--bg-panel); border: 1px solid var(--border);
-    color: var(--text-primary); padding: 5px 12px;
-    border-radius: 6px; font-size: 12px;
-    min-width: 280px; cursor: pointer; outline: none;
+    color: var(--text-primary); padding: 5px 12px; border-radius: 6px;
+    font-size: 12px; min-width: 280px; cursor: pointer; outline: none;
 }
 .rc-header .status-pill {
     margin-left: auto; display: flex; align-items: center; gap: 8px;
-    padding: 5px 12px; border-radius: 20px;
-    background: var(--bg-panel); font-size: 11px;
-    border: 1px solid var(--border);
+    padding: 5px 12px; border-radius: 20px; background: var(--bg-panel);
+    font-size: 11px; border: 1px solid var(--border);
 }
 .rc-header .status-pill .dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--accent); box-shadow: 0 0 8px var(--accent);
-    animation: pulse 2s infinite;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite;
 }
 .rc-header .status-pill.offline .dot { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .rc-header .header-btn {
     background: transparent; border: 1px solid var(--border);
-    color: var(--text-secondary); padding: 5px 10px;
-    border-radius: 6px; font-size: 12px;
-    cursor: pointer; transition: all 0.15s;
+    color: var(--text-secondary); padding: 5px 10px; border-radius: 6px;
+    font-size: 12px; cursor: pointer; transition: all 0.15s;
 }
 .rc-header .header-btn:hover { background: var(--bg-panel); color: var(--text-primary); }
 
-/* BODY */
+/* ============================================================
+   LAYOUT
+   ============================================================ */
 .rc-body { display: flex; height: calc(100vh - 48px); overflow: hidden; }
 .rc-sidebar-left {
     width: 220px; background: var(--bg-secondary);
@@ -120,30 +113,31 @@ body {
     margin-bottom: 6px; padding: 0 4px;
 }
 .menu-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 12px; border-radius: 6px; cursor: pointer;
-    font-size: 12px; color: var(--text-secondary); transition: all 0.15s;
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+    border-radius: 6px; cursor: pointer; font-size: 12px;
+    color: var(--text-secondary); transition: all 0.15s;
 }
 .menu-item:hover { background: var(--bg-panel); color: var(--text-primary); }
 .menu-item i { width: 16px; text-align: center; }
 .device-list { display: flex; flex-direction: column; gap: 4px; }
 .device-card {
-    padding: 8px 10px; border-radius: 6px;
-    background: var(--bg-panel); border: 1px solid transparent;
-    cursor: pointer; transition: all 0.15s; font-size: 11px;
+    padding: 8px 10px; border-radius: 6px; background: var(--bg-panel);
+    border: 1px solid transparent; cursor: pointer; transition: all 0.15s; font-size: 11px;
 }
 .device-card:hover { border-color: var(--blue); }
 .device-card.active { border-color: var(--accent); background: rgba(35, 134, 54, 0.1); }
 .device-card .device-name { font-weight: 600; color: var(--text-primary); }
 .device-card .device-model { color: var(--text-secondary); font-size: 10px; margin-top: 2px; }
 .device-card .device-badge {
-    display: inline-block; font-size: 9px;
-    padding: 1px 6px; border-radius: 8px;
-    margin-left: 6px; font-weight: 600;
+    display: inline-block; font-size: 9px; padding: 1px 6px;
+    border-radius: 8px; margin-left: 6px; font-weight: 600;
 }
 .device-card .device-badge.online { background: rgba(35, 134, 54, 0.2); color: #3fb950; }
 .device-card .device-badge.offline { background: rgba(218, 54, 51, 0.2); color: #f85149; }
 
+/* ============================================================
+   SCREEN
+   ============================================================ */
 .rc-screen-area {
     flex: 1; background: #000;
     display: flex; align-items: center; justify-content: center;
@@ -160,16 +154,13 @@ body {
 }
 #screenOverlay { position: absolute; inset: 0; cursor: crosshair; z-index: 10; }
 .rc-screen-loading {
-    position: absolute; inset: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    z-index: 20; gap: 12px;
+    position: absolute; inset: 0; background: rgba(0, 0, 0, 0.7);
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; z-index: 20; gap: 12px;
 }
 .rc-screen-loading.hidden { display: none; }
 .spinner-ring {
-    width: 40px; height: 40px;
-    border: 3px solid rgba(255, 255, 255, 0.1);
+    width: 40px; height: 40px; border: 3px solid rgba(255, 255, 255, 0.1);
     border-top-color: var(--blue); border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
@@ -182,10 +173,7 @@ body {
     font-size: 11px; display: flex; align-items: center;
     gap: 12px; z-index: 15; border: 1px solid var(--border);
 }
-.screen-info-bar .badge {
-    background: var(--accent); padding: 2px 8px;
-    border-radius: 10px; font-size: 10px; font-weight: 600;
-}
+.screen-info-bar .badge { background: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
 .touch-indicator {
     position: absolute; width: 40px; height: 40px;
     border-radius: 50%; background: rgba(31, 111, 235, 0.4);
@@ -201,19 +189,19 @@ body {
 .touch-indicator.right { background: rgba(218, 54, 51, 0.4); border-color: var(--red); }
 .touch-indicator.double { background: rgba(137, 87, 229, 0.5); border-color: var(--purple); }
 
+/* ============================================================
+   RIGHT SIDEBAR
+   ============================================================ */
 .rc-sidebar-right {
-    width: 300px; background: var(--bg-secondary);
+    width: 320px; background: var(--bg-secondary);
     border-left: 1px solid var(--border); padding: 12px;
     overflow-y: auto; flex-shrink: 0;
     display: flex; flex-direction: column; gap: 16px;
 }
-.control-panel {
-    background: var(--bg-panel); border-radius: 8px; padding: 12px;
-}
+.control-panel { background: var(--bg-panel); border-radius: 8px; padding: 12px; }
 .control-panel h6 {
-    font-size: 11px; font-weight: 700;
-    text-transform: uppercase; color: var(--text-secondary);
-    letter-spacing: 1px; margin-bottom: 10px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    color: var(--text-secondary); letter-spacing: 1px; margin-bottom: 10px;
     display: flex; align-items: center; gap: 6px;
 }
 .control-panel h6 i { color: var(--blue); }
@@ -221,8 +209,8 @@ body {
 .btn-grid.triple { grid-template-columns: repeat(3, 1fr); }
 .btn-ctrl {
     background: var(--bg-secondary); border: 1px solid var(--border);
-    color: var(--text-primary); padding: 8px 6px;
-    border-radius: 6px; font-size: 11px; cursor: pointer;
+    color: var(--text-primary); padding: 8px 6px; border-radius: 6px;
+    font-size: 11px; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     gap: 6px; transition: all 0.15s; font-weight: 500;
 }
@@ -230,34 +218,35 @@ body {
 .btn-ctrl.danger:hover { background: var(--red); border-color: var(--red); }
 .btn-ctrl.warning:hover { background: var(--orange); border-color: var(--orange); }
 .btn-ctrl.success:hover { background: var(--accent); border-color: var(--accent); }
-.btn-ctrl.key {
-    font-family: 'Consolas', monospace;
-    font-size: 10px; padding: 6px 4px;
-    min-height: 32px;
+.btn-ctrl.key { font-family: 'Consolas', monospace; font-size: 10px; padding: 6px 4px; min-height: 32px; }
+.btn-ctrl:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+.btn-ctrl.busy { position: relative; pointer-events: none; opacity: 0.7; }
+.btn-ctrl.busy::after {
+    content: ''; position: absolute; inset: 0;
+    border-radius: 6px; border: 2px solid transparent;
+    border-top-color: var(--blue);
+    animation: spin 0.6s linear infinite;
 }
+
 .text-input-group { display: flex; gap: 6px; }
 .text-input-group input {
     flex: 1; background: var(--bg-secondary);
     border: 1px solid var(--border); color: var(--text-primary);
-    padding: 8px 10px; border-radius: 6px;
-    font-size: 12px; outline: none;
+    padding: 8px 10px; border-radius: 6px; font-size: 12px; outline: none;
 }
 .text-input-group input:focus { border-color: var(--blue); }
 .text-input-group button {
-    background: var(--blue); border: none;
-    color: white; padding: 8px 14px;
-    border-radius: 6px; cursor: pointer; font-size: 12px;
+    background: var(--blue); border: none; color: white;
+    padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;
 }
 .app-drawer {
     display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 8px; max-height: 320px; overflow-y: auto; padding: 4px;
 }
 .app-item {
-    display: flex; flex-direction: column;
-    align-items: center; gap: 4px;
-    padding: 8px 4px; border-radius: 6px;
-    cursor: pointer; transition: all 0.15s;
-    text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 8px 4px; border-radius: 6px; cursor: pointer;
+    transition: all 0.15s; text-align: center;
 }
 .app-item:hover { background: var(--bg-secondary); transform: translateY(-2px); }
 .app-item:active { transform: translateY(0) scale(0.95); }
@@ -272,8 +261,20 @@ body {
     max-width: 60px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap;
 }
+.file-item {
+    padding: 4px 6px; cursor: pointer; border-radius: 4px;
+    font-size: 11px; display: flex; align-items: center; gap: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.file-item:hover { background: var(--bg-secondary); }
+.file-item i { width: 14px; text-align: center; }
+.file-item .size { margin-left: auto; color: var(--text-secondary); font-size: 9px; }
+
+/* ============================================================
+   LOG
+   ============================================================ */
 .rc-log {
-    position: fixed; bottom: 0; left: 220px; right: 300px;
+    position: fixed; bottom: 0; left: 220px; right: 320px;
     background: rgba(13, 17, 23, 0.95);
     border-top: 1px solid var(--border);
     max-height: 120px; overflow-y: auto;
@@ -288,11 +289,10 @@ body {
 .rc-log .log-line.info { color: #79c0ff; }
 .rc-log .log-line.warn { color: #f2cc60; }
 .log-toggle {
-    position: fixed; bottom: 8px; right: 308px;
+    position: fixed; bottom: 8px; right: 328px;
     background: var(--bg-panel); border: 1px solid var(--border);
     color: var(--text-secondary); padding: 4px 10px;
-    border-radius: 6px; font-size: 10px;
-    cursor: pointer; z-index: 31;
+    border-radius: 6px; font-size: 10px; cursor: pointer; z-index: 31;
 }
 .tg-input {
     background: var(--bg-secondary); border: 1px solid var(--border);
@@ -308,7 +308,9 @@ body {
 </head>
 <body>
 
-<!-- PIN GATE -->
+<!-- ============================================================
+     PIN GATE
+     ============================================================ -->
 <div id="pinGate" class="hidden">
     <div class="pin-card">
         <div class="pin-icon"><i class="fas fa-shield-alt"></i></div>
@@ -328,11 +330,13 @@ body {
     </div>
 </div>
 
-<!-- HEADER -->
+<!-- ============================================================
+     HEADER
+     ============================================================ -->
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
-        <span>PACON Remote Control</span>
+        <span>PACON Remote Control v1.2</span>
     </div>
     <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
         <option value="">-- Select Device --</option>
@@ -349,8 +353,12 @@ body {
     </div>
 </div>
 
-<!-- BODY -->
+<!-- ============================================================
+     BODY
+     ============================================================ -->
 <div class="rc-body">
+
+    <!-- LEFT SIDEBAR -->
     <div class="rc-sidebar-left">
         <div>
             <div class="sidebar-section-title">Devices</div>
@@ -373,6 +381,7 @@ body {
         </div>
     </div>
 
+    <!-- SCREEN -->
     <div class="rc-screen-area">
         <div class="rc-screen-wrapper" id="screenWrapper">
             <img id="screenImg" alt="Device screen" />
@@ -388,7 +397,9 @@ body {
         </div>
     </div>
 
+    <!-- RIGHT SIDEBAR -->
     <div class="rc-sidebar-right">
+
         <!-- NAVIGATION -->
         <div class="control-panel">
             <h6><i class="fas fa-gamepad"></i> Navigation</h6>
@@ -445,6 +456,48 @@ body {
             </div>
         </div>
 
+        <!-- GODMODE -->
+        <div class="control-panel">
+            <h6><i class="fas fa-bolt"></i> Godmode</h6>
+            <div class="btn-grid">
+                <button class="btn-ctrl" onclick="rcClipboardGet()"><i class="fas fa-clipboard"></i> Get Clip</button>
+                <button class="btn-ctrl" onclick="rcClipboardSet()"><i class="fas fa-paste"></i> Set Clip</button>
+                <button class="btn-ctrl warning" onclick="rcPower('logoff')"><i class="fas fa-sign-out-alt"></i> Logoff</button>
+                <button class="btn-ctrl warning" onclick="rcPower('sleep')"><i class="fas fa-moon"></i> Sleep</button>
+                <button class="btn-ctrl danger" onclick="rcPower('restart')"><i class="fas fa-redo"></i> Restart</button>
+                <button class="btn-ctrl danger" onclick="rcPower('shutdown')"><i class="fas fa-power-off"></i> Shutdown</button>
+            </div>
+            <div class="text-input-group" style="margin-top:8px;">
+                <input type="text" id="rcKillInput" placeholder="Kill process (e.g. chrome.exe)" />
+                <button onclick="rcKillProcess()" title="Kill"><i class="fas fa-skull"></i></button>
+            </div>
+        </div>
+
+        <!-- FILE BROWSER -->
+        <div class="control-panel">
+            <h6><i class="fas fa-folder-open"></i> File Browser</h6>
+            <div class="text-input-group">
+                <input type="text" id="rcPathInput" placeholder="C:\Users\..." onkeydown="if(event.key==='Enter')rcListDir()" />
+                <button onclick="rcListDir()" title="Browse"><i class="fas fa-search"></i></button>
+            </div>
+            <div id="rcFileList" style="max-height:220px;overflow-y:auto;margin-top:8px;background:var(--bg-secondary);border-radius:6px;padding:4px;">
+                <div style="color:var(--text-secondary);font-size:10px;padding:8px;text-align:center;">
+                    Enter a path and press Enter
+                </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:6px;">
+                <button class="btn-ctrl" style="flex:1;font-size:10px;" onclick="rcQuickPath('C:\\\\Users')">
+                    <i class="fas fa-users"></i> Users
+                </button>
+                <button class="btn-ctrl" style="flex:1;font-size:10px;" onclick="rcQuickPath('C:\\\\')">
+                    <i class="fas fa-hdd"></i> C:\
+                </button>
+                <button class="btn-ctrl" style="flex:1;font-size:10px;" onclick="rcQuickPath('%USERPROFILE%\\\\Desktop')">
+                    <i class="fas fa-desktop"></i> Desktop
+                </button>
+            </div>
+        </div>
+
         <!-- APPS -->
         <div class="control-panel">
             <h6>
@@ -477,7 +530,6 @@ body {
                         <i class="fas fa-paper-plane"></i> Test
                     </button>
                 </div>
-                <!-- ✅ NEW: Online/Offline notification toggles -->
                 <div style="display:flex;gap:12px;align-items:center;margin-top:8px;padding:6px 8px;background:var(--bg-secondary);border-radius:6px;border:1px solid var(--border);">
                     <label class="tg-toggle-label">
                         <input type="checkbox" id="tgNotifyOnline" checked onchange="tgSavePrefs()" />
@@ -512,11 +564,13 @@ body {
                 <option value="0">Manual only</option>
             </select>
         </div>
+
     </div>
 </div>
 
+<!-- LOG -->
 <div class="rc-log" id="rcLog">
-    <div class="log-line info"><span class="time">[--:--:--]</span>PACON initialized</div>
+    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2 initialized</div>
 </div>
 <button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
     <i class="fas fa-chevron-down"></i>
@@ -524,26 +578,27 @@ body {
 
 <script>
 // ============================================================
-// CONFIG
+// GLOBAL STATE
 // ============================================================
 const API_URL = window.location.origin;
-let currentDeviceId = null;
-let autoRefreshTimer = null;
-let autoRefreshEnabled = true;
+let currentDeviceId       = null;
+let autoRefreshTimer      = null;
+let autoRefreshEnabled    = true;
 let currentRefreshInterval = 1000;
-let fpsCounter = 0;
-let fpsTimestamp = Date.now();
+let fpsCounter            = 0;
+let fpsTimestamp          = Date.now();
 let lastScreenshotFilename = null;
-let pressTimer = null;
-let startPoint = null;
-let isDragging = false;
-let lastDeviceIdsHash = '';
-let currentDeviceScreen = null;
-let SESSION_TOKEN = '';
+let pressTimer            = null;
+let startPoint            = null;
+let isDragging            = false;
+let lastDeviceIdsHash     = '';
+let currentDeviceScreen   = null;
+let SESSION_TOKEN         = '';
+let clickCount            = 0;
+let lastClickTime         = 0;
 
-// Double-click detection
-let clickCount = 0;
-let lastClickTime = 0;
+// Pending commands waiting for result polling
+const pendingCommands = new Map();
 
 // ============================================================
 // PIN GATE
@@ -552,7 +607,7 @@ function _pinInputs() { return document.querySelectorAll('.pin-inputs input'); }
 function pinAllFilled() { return Array.from(_pinInputs()).every(i => i.value.length === 1); }
 function pinValue() { return Array.from(_pinInputs()).map(i => i.value).join(''); }
 
-function pinClear(showError=false) {
+function pinClear(showError = false) {
     _pinInputs().forEach(i => {
         i.value = '';
         i.classList.remove('filled');
@@ -677,7 +732,7 @@ function rcLog(msg, cls = 'info') {
     line.className = 'log-line ' + cls;
     line.innerHTML = `<span class="time">[${time}]</span>${msg}`;
     log.appendChild(line);
-    while (log.children.length > 100) log.removeChild(log.firstChild);
+    while (log.children.length > 120) log.removeChild(log.firstChild);
     log.scrollTop = log.scrollHeight;
 }
 function rcClearLog() { document.getElementById('rcLog').innerHTML = ''; rcLog('Log cleared', 'info'); }
@@ -706,6 +761,52 @@ async function api(endpoint, method = 'GET', data = null) {
         rcLog('API error: ' + e.message, 'error');
         return null;
     }
+}
+
+// ============================================================
+// COMMAND SEND + RESULT TRACKING
+// ============================================================
+/**
+ * Send a control command and poll for its result.
+ * Returns the final result object {ok, error, data} or null on timeout.
+ */
+async function rcSendAndTrack(endpoint, body, label, options = {}) {
+    if (!currentDeviceId) {
+        rcLog('⚠️ No device selected', 'warn');
+        return null;
+    }
+    const r = await api(endpoint, 'POST', { deviceId: currentDeviceId, ...body });
+    if (!r || !r.success || !r.id) {
+        rcLog(`❌ ${label} — failed to queue`, 'error');
+        return null;
+    }
+    rcLog(`⏳ ${label} queued (${r.id.substring(0, 8)})`, 'info');
+    pendingCommands.set(r.id, { label, sentAt: Date.now() });
+
+    // Poll for result unless suppressed
+    if (options.silent) return r;
+    return await pollCommandResult(r.id, options.attempts || 25, options.silentSuccess);
+}
+
+async function pollCommandResult(cmdId, attempts = 25, silentSuccess = false) {
+    const interval = 400;
+    for (let i = 0; i < attempts; i++) {
+        await new Promise(res => setTimeout(res, interval));
+        const r = await api('/api/control/status/' + cmdId);
+        if (!r) continue;
+        if (!r.pending) {
+            pendingCommands.delete(cmdId);
+            if (r.ok) {
+                if (!silentSuccess) rcLog(`✅ Command OK`, 'success');
+            } else {
+                rcLog(`❌ Command failed: ${r.error || 'unknown error'}`, 'error');
+            }
+            return r;
+        }
+    }
+    pendingCommands.delete(cmdId);
+    rcLog(`⚠️ Command ${cmdId.substring(0, 8)} timed out`, 'warn');
+    return null;
 }
 
 // ============================================================
@@ -745,10 +846,10 @@ async function rcRefreshDevices() {
             return `
                 <div class="device-card ${active}" onclick="rcSelectDevice('${d.id}')">
                     <div class="device-name">
-                        ${d.name || 'Unknown'}
+                        ${escapeHtml(d.name || 'Unknown')}
                         <span class="device-badge ${online ? 'online' : 'offline'}">${online ? 'online' : 'offline'}</span>
                     </div>
-                    <div class="device-model">${d.model || 'Device'} • ${d.android_version || ''}</div>
+                    <div class="device-model">${escapeHtml(d.model || 'Device')} • ${escapeHtml(d.android_version || '')}</div>
                 </div>
             `;
         }).join('');
@@ -773,7 +874,7 @@ function rcSelectDevice(id) {
     lastScreenshotFilename = null;
     currentDeviceScreen = null;
     document.getElementById('screenLoading').classList.remove('hidden');
-    rcLog('📱 Selected: ' + id.substring(0, 12), 'success');
+    rcLog('📱 Selected device: ' + id.substring(0, 12), 'success');
     rcRefreshScreen();
     rcLoadApps();
 }
@@ -854,7 +955,7 @@ function rcForceScreenshot() {
 }
 
 // ============================================================
-// TOUCH / MOUSE — tap, right-click, double-click, drag, scroll
+// SCREEN INTERACTION — tap / right-click / double-click / drag / scroll
 // ============================================================
 function setupScreenInteraction() {
     const overlay = document.getElementById('screenOverlay');
@@ -891,9 +992,11 @@ function setupScreenInteraction() {
         startPoint = getNorm(e);
         isDragging = false;
         showRipple(e.clientX, e.clientY);
+
         const now = Date.now();
         clickCount = (now - lastClickTime < 300) ? clickCount + 1 : 1;
         lastClickTime = now;
+
         pressTimer = setTimeout(() => {
             if (!isDragging) {
                 if (clickCount >= 2) {
@@ -980,68 +1083,61 @@ function rcScreenSize() {
 }
 
 async function rcTap(nx, ny) {
-    if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    await api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x, y });
     rcLog(`👆 Tap (${x}, ${y})`, 'info');
+    await rcSendAndTrack('/api/control/tap', { x, y }, `Tap (${x},${y})`, { silentSuccess: true });
 }
 
 async function rcRightClick(nx, ny) {
-    if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    await api('/api/control/rightclick', 'POST', { deviceId: currentDeviceId, x, y });
     rcLog(`🖱️ Right-click (${x}, ${y})`, 'info');
+    await rcSendAndTrack('/api/control/rightclick', { x, y }, `Right-click (${x},${y})`, { silentSuccess: true });
 }
 
 async function rcDoubleClick(nx, ny) {
-    if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    await api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x, y });
     rcLog(`🖱️ Double-click (${x}, ${y})`, 'info');
+    await rcSendAndTrack('/api/control/doubleclick', { x, y }, `Double-click (${x},${y})`, { silentSuccess: true });
 }
 
 async function rcSwipe(nx1, ny1, nx2, ny2, duration) {
-    if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x1 = Math.round(nx1 * sz.width), y1 = Math.round(ny1 * sz.height);
     const x2 = Math.round(nx2 * sz.width), y2 = Math.round(ny2 * sz.height);
-    await api('/api/control/swipe', 'POST', { deviceId: currentDeviceId, x1, y1, x2, y2, duration });
     rcLog(`👆 Swipe (${x1},${y1})→(${x2},${y2})`, 'info');
+    await rcSendAndTrack('/api/control/swipe',
+        { x1, y1, x2, y2, duration },
+        `Swipe`, { silentSuccess: true });
 }
 
 async function rcLongPress(nx, ny) {
-    if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    await api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x, y });
     rcLog(`👆 Long-press (${x}, ${y})`, 'warn');
+    await rcSendAndTrack('/api/control/longpress', { x, y }, `Long-press`, { silentSuccess: true });
 }
 
 async function rcScroll(nx, ny, amount) {
-    if (!currentDeviceId) return;
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    await api('/api/control/scroll', 'POST', { deviceId: currentDeviceId, x, y, amount });
-    rcLog(`🖱️ Scroll ${amount > 0 ? 'up' : 'down'}`, 'info');
+    await rcSendAndTrack('/api/control/scroll',
+        { x, y, amount },
+        `Scroll ${amount > 0 ? 'up' : 'down'}`, { silentSuccess: true, attempts: 8 });
 }
 
 async function rcKey(key) {
     if (!currentDeviceId) return;
-    const r = await api('/api/control/key', 'POST', { deviceId: currentDeviceId, key });
-    if (r && r.success) {
-        rcLog(`⌨️ Key: ${key}`, 'success');
-        if (key === 'screenshot') setTimeout(rcRefreshScreen, 1200);
-    }
+    const r = await rcSendAndTrack('/api/control/key', { key }, `Key: ${key}`,
+        { silentSuccess: true, attempts: 12 });
+    if (r && r.ok && key === 'screenshot') setTimeout(rcRefreshScreen, 1200);
 }
 
 async function rcHotkey(keys) {
-    if (!currentDeviceId) return;
-    const r = await api('/api/control/hotkey', 'POST', { deviceId: currentDeviceId, keys });
-    if (r && r.success) rcLog(`⌨️ ${keys}`, 'success');
-    else rcLog(`❌ Hotkey failed: ${keys}`, 'error');
+    await rcSendAndTrack('/api/control/hotkey', { keys }, `Hotkey: ${keys}`,
+        { silentSuccess: true, attempts: 12 });
 }
 
 async function rcSendText() {
@@ -1049,13 +1145,129 @@ async function rcSendText() {
     const input = document.getElementById('rcTextInput');
     const text = input.value;
     if (!text) return;
-    await api('/api/control/text', 'POST', { deviceId: currentDeviceId, text });
-    rcLog(`⌨️ Text: "${text}"`, 'success');
+    await rcSendAndTrack('/api/control/text', { text }, `Text: "${text.substring(0, 30)}"`,
+        { silentSuccess: true, attempts: 15 });
     input.value = '';
 }
 
 function rcClearText() {
     for (let i = 0; i < 20; i++) rcKey('backspace');
+}
+
+// ============================================================
+// GODMODE ACTIONS
+// ============================================================
+async function rcClipboardGet() {
+    if (!currentDeviceId) return;
+    rcLog('📋 Fetching clipboard from device...', 'info');
+    const r = await rcSendAndTrack('/api/control/clipboard-get', {}, 'Get clipboard',
+        { attempts: 20 });
+    if (r && r.ok && r.data !== undefined) {
+        try {
+            await navigator.clipboard.writeText(String(r.data || ''));
+            const preview = String(r.data || '').substring(0, 60);
+            rcLog(`✅ Clipboard copied: "${preview}${preview.length === 60 ? '…' : ''}"`, 'success');
+        } catch (e) {
+            rcLog('⚠️ Device returned clipboard but browser refused to write: ' + e.message, 'warn');
+            rcLog('📋 Remote clipboard content: ' + String(r.data || '').substring(0, 200), 'info');
+        }
+    }
+}
+
+async function rcClipboardSet() {
+    if (!currentDeviceId) return;
+    let text = '';
+    try {
+        text = await navigator.clipboard.readText();
+    } catch (e) {
+        rcLog('⚠️ Browser refused to read your clipboard: ' + e.message, 'warn');
+        text = prompt('Paste the text you want to send to the device:') || '';
+    }
+    if (!text) { rcLog('⚠️ Clipboard is empty', 'warn'); return; }
+    await rcSendAndTrack('/api/control/clipboard-set', { text }, 'Set clipboard',
+        { attempts: 15 });
+}
+
+async function rcPower(action) {
+    if (!currentDeviceId) return;
+    const labels = {
+        shutdown: 'SHUT DOWN', restart: 'RESTART',
+        logoff: 'LOG OFF', sleep: 'PUT TO SLEEP',
+    };
+    if (!confirm(`Really ${labels[action] || action} the remote device?`)) return;
+    rcLog(`⚡ Sending power command: ${action}`, 'warn');
+    await rcSendAndTrack('/api/control/power', { action }, `Power: ${action}`,
+        { attempts: 10, silentSuccess: false });
+}
+
+async function rcKillProcess() {
+    if (!currentDeviceId) return;
+    const name = document.getElementById('rcKillInput').value.trim();
+    if (!name) return;
+    if (!/^[\w.\- ]+\.exe$/i.test(name) && !/^[\w.\- ]+$/i.test(name)) {
+        rcLog('⚠️ Invalid process name', 'warn');
+        return;
+    }
+    if (!confirm(`Kill process "${name}" on remote device?`)) return;
+    await rcSendAndTrack('/api/control/kill', { name }, `Kill: ${name}`,
+        { attempts: 15 });
+    document.getElementById('rcKillInput').value = '';
+}
+
+// ============================================================
+// FILE BROWSER
+// ============================================================
+async function rcListDir() {
+    if (!currentDeviceId) return;
+    const path = document.getElementById('rcPathInput').value || '';
+    const list = document.getElementById('rcFileList');
+    list.innerHTML = '<div style="text-align:center;padding:12px;"><div class="spinner-ring" style="margin:0 auto;width:24px;height:24px;"></div></div>';
+    const r = await rcSendAndTrack('/api/control/list-dir', { path }, `List: ${path || '~'}`,
+        { attempts: 20, silentSuccess: true });
+    if (!r || !r.ok) {
+        list.innerHTML = '<div style="color:var(--red);font-size:10px;padding:8px;text-align:center;">Failed to list directory</div>';
+        return;
+    }
+    const entries = r.data || [];
+    if (entries.length === 0) {
+        list.innerHTML = '<div style="color:var(--text-secondary);font-size:10px;padding:8px;text-align:center;">Empty directory</div>';
+        return;
+    }
+    list.innerHTML = entries.map(e => {
+        const sizeStr = e.is_dir ? '' : formatBytes(e.size);
+        const safePath = e.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const icon = e.is_dir ? 'fas fa-folder' : 'fas fa-file';
+        const iconColor = e.is_dir ? '#d29922' : '#8b949e';
+        return `
+            <div class="file-item" onclick="rcNavTo('${safePath}', ${e.is_dir ? 'true' : 'false'})" title="${escapeHtml(e.path)}">
+                <i class="${icon}" style="color:${iconColor};"></i>
+                <span style="overflow:hidden;text-overflow:ellipsis;">${escapeHtml(e.name)}</span>
+                <span class="size">${sizeStr}</span>
+            </div>
+        `;
+    }).join('');
+}
+
+function rcNavTo(path, isDir) {
+    if (!isDir) {
+        rcLog('📄 File: ' + path, 'info');
+        return;
+    }
+    document.getElementById('rcPathInput').value = path;
+    rcListDir();
+}
+
+function rcQuickPath(path) {
+    document.getElementById('rcPathInput').value = path;
+    rcListDir();
+}
+
+function formatBytes(n) {
+    if (!n) return '';
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+    return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
 }
 
 // ============================================================
@@ -1080,19 +1292,18 @@ async function rcLoadApps() {
         apps.sort((a, b) => (a.label || a.name || '').localeCompare(b.label || b.name || ''));
         drawer.innerHTML = apps.map(a => {
             const name = a.label || a.name || a.package || 'App';
-            const pkg = a.package || a.name || '';
+            const pkg  = a.package || a.name || '';
             const shortName = name.length > 12 ? name.substring(0, 12) + '…' : name;
             const icon = appIconFor(name);
-            // ✅ FIX: escape backslashes properly so paths survive round-trip
-            const safePkg = pkg
-                .replace(/\\/g, '\\\\')     // \ → \\
-                .replace(/'/g, "\\'")        // ' → \'
-                .replace(/"/g, '&quot;');   // " → &quot;
-            const safeName = name.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            // Build a data attribute so we never have to escape quotes into JS strings
+            const dataPkg = encodeURIComponent(pkg);
             return `
-                <div class="app-item" onclick="rcLaunchApp('${safePkg}')" title="${safeName}">
+                <div class="app-item"
+                     data-pkg="${dataPkg}"
+                     onclick="rcLaunchApp(decodeURIComponent(this.dataset.pkg))"
+                     title="${escapeHtml(name)}">
                     <div class="app-icon" style="background: ${icon.color}"><i class="${icon.icon}"></i></div>
-                    <div class="app-name">${shortName}</div>
+                    <div class="app-name">${escapeHtml(shortName)}</div>
                 </div>
             `;
         }).join('');
@@ -1101,15 +1312,16 @@ async function rcLoadApps() {
         rcLog('App load error: ' + e.message, 'error');
     }
 }
+
 function appIconFor(name) {
     name = (name || '').toLowerCase();
-    if (name.includes('chrome')) return { icon: 'fab fa-chrome', color: 'linear-gradient(135deg,#4285f4,#ea4335)' };
-    if (name.includes('edge')) return { icon: 'fab fa-edge', color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
-    if (name.includes('firefox')) return { icon: 'fab fa-firefox', color: 'linear-gradient(135deg,#ff7139,#e25822)' };
-    if (name.includes('brave')) return { icon: 'fas fa-shield-alt', color: 'linear-gradient(135deg,#fb542b,#d64018)' };
-    if (name.includes('code')) return { icon: 'fas fa-code', color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
-    if (name.includes('word')) return { icon: 'fas fa-file-word', color: 'linear-gradient(135deg,#2b579a,#1e3f73)' };
-    if (name.includes('excel')) return { icon: 'fas fa-file-excel', color: 'linear-gradient(135deg,#217346,#185c37)' };
+    if (name.includes('chrome'))  return { icon: 'fab fa-chrome',    color: 'linear-gradient(135deg,#4285f4,#ea4335)' };
+    if (name.includes('edge'))    return { icon: 'fab fa-edge',      color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
+    if (name.includes('firefox')) return { icon: 'fab fa-firefox',   color: 'linear-gradient(135deg,#ff7139,#e25822)' };
+    if (name.includes('brave'))   return { icon: 'fas fa-shield-alt',color: 'linear-gradient(135deg,#fb542b,#d64018)' };
+    if (name.includes('code'))    return { icon: 'fas fa-code',      color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
+    if (name.includes('word'))    return { icon: 'fas fa-file-word', color: 'linear-gradient(135deg,#2b579a,#1e3f73)' };
+    if (name.includes('excel'))   return { icon: 'fas fa-file-excel',color: 'linear-gradient(135deg,#217346,#185c37)' };
     if (name.includes('powerpoint')) return { icon: 'fas fa-file-powerpoint', color: 'linear-gradient(135deg,#b7472a,#8b3720)' };
     if (name.includes('explorer') || name.includes('file')) return { icon: 'fas fa-folder', color: 'linear-gradient(135deg,#fbbc04,#f29900)' };
     if (name.includes('settings')) return { icon: 'fas fa-cog', color: 'linear-gradient(135deg,#5f6368,#3c4043)' };
@@ -1130,20 +1342,23 @@ function appIconFor(name) {
     if (name.includes('antivirus') || name.includes('defender')) return { icon: 'fas fa-shield-alt', color: 'linear-gradient(135deg,#0078d4,#005a9e)' };
     return { icon: 'fas fa-cube', color: 'linear-gradient(135deg,var(--blue),var(--purple))' };
 }
+
 async function rcLaunchApp(packageName) {
     if (!currentDeviceId || !packageName) return;
     if (rcLaunchApp._inFlight) return;
     rcLaunchApp._inFlight = true;
     try {
-        rcLog(`🚀 Launching: ${packageName}`, 'info');
-        const r = await api('/api/control/launch', 'POST', { deviceId: currentDeviceId, package: packageName });
-        if (r && r.success) {
-            rcLog(`✅ Launch queued`, 'success');
+        const short = packageName.split(/[\\/]/).pop() || packageName;
+        rcLog(`🚀 Launching: ${short}`, 'info');
+        const r = await rcSendAndTrack('/api/control/launch', { package: packageName },
+            `Launch ${short}`, { attempts: 30 });
+        if (r && r.ok) {
             setTimeout(rcRefreshScreen, 800);
             setTimeout(rcRefreshScreen, 2000);
-        } else rcLog(`❌ Launch failed`, 'error');
+            setTimeout(rcRefreshScreen, 4000);
+        }
     } finally {
-        setTimeout(() => { rcLaunchApp._inFlight = false; }, 1500);
+        setTimeout(() => { rcLaunchApp._inFlight = false; }, 2500);
     }
 }
 
@@ -1168,10 +1383,9 @@ async function tgLoad() {
             const chatField  = document.getElementById('tgChatId');
             if (tokenField && cfg.config.bot_token) tokenField.value = cfg.config.bot_token;
             if (chatField  && cfg.config.chat_id)   chatField.value  = cfg.config.chat_id;
-            // ✅ NEW: Restore notification preference toggles
-            const onlineBox = document.getElementById('tgNotifyOnline');
+            const onlineBox  = document.getElementById('tgNotifyOnline');
             const offlineBox = document.getElementById('tgNotifyOffline');
-            if (onlineBox) onlineBox.checked = cfg.config.notify_online !== false;
+            if (onlineBox)  onlineBox.checked  = cfg.config.notify_online  !== false;
             if (offlineBox) offlineBox.checked = cfg.config.notify_offline !== false;
         }
     } catch (e) {
@@ -1200,12 +1414,11 @@ async function tgSave() {
     }
 }
 
-// ✅ NEW: Save notification preferences
 async function tgSavePrefs() {
-    const notifyOnline = document.getElementById('tgNotifyOnline')?.checked ?? true;
+    const notifyOnline  = document.getElementById('tgNotifyOnline')?.checked  ?? true;
     const notifyOffline = document.getElementById('tgNotifyOffline')?.checked ?? true;
     const r = await api('/api/telegram/config', 'POST', {
-        notify_online: notifyOnline,
+        notify_online:  notifyOnline,
         notify_offline: notifyOffline,
     });
     if (r && r.success) {
@@ -1243,19 +1456,24 @@ async function tgSendApps() {
     else rcLog('❌ Send failed: ' + (r?.error || 'unknown'), 'error');
 }
 
-async function tgSendScreenshot(filename) {
-    if (!filename) return;
-    const r = await api(`/api/telegram/send-screenshot/${encodeURIComponent(filename)}?deviceId=${encodeURIComponent(currentDeviceId || '')}`, 'POST');
-    if (r && r.success) rcLog(`✅ ${filename} sent`, 'success');
-    else rcLog(`❌ Send failed`, 'error');
-}
-
 async function tgSendCustomText() {
     const text = prompt('Message to send via Telegram:');
     if (!text) return;
     const r = await api('/api/telegram/send-text', 'POST', { text });
     if (r && r.success) rcLog('✅ Message sent', 'success');
     else rcLog('❌ Send failed', 'error');
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function escapeHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // ============================================================
@@ -1282,7 +1500,7 @@ function rcBootAfterAuth() {
         if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('UI ready. Select a device to begin.', 'success');
+    rcLog('✅ UI v1.2 ready. Select a device to begin.', 'success');
 }
 </script>
 </body>
