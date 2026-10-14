@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PACON Service - v1.2.4
+PACON Service - v1.2.5
 =======================
-v1.2.4 changes:
-  - Canonical device ID merging: devices with same (hostname, public_ip)
-    are unified under the most recently-active device ID.
-  - Pending-registration rejection: devices that register but never poll
-    are hidden from /api/devices.
-  - Better diagnostics showing raw vs canonical IDs.
-  - /api/devices trusts last_poll over last_seen when they disagree.
+v1.2.5 changes:
+  - Console logging for every /api/devices and /api/apps/list call
+  - /api/apps/list accepts devices offline up to 5 min (was 15s)
+  - /api/apps (unscoped) same 5-min grace period
+  - /api/monitor/apps logs when apps are stored
+  - /api/control/poll logs every 10th poll per device
+  - NEW: /api/debug/apps-status endpoint for pinpointing issues
+  - Better watchdog/cleanup logging
 """
 
 import os
@@ -116,29 +117,29 @@ CORS(app, origins=ALLOWED_ORIGINS, supports_credentials=True)
 # ============================================================
 # DATA STORE
 # ============================================================
-devices             = {}         # device_id -> device dict
+devices             = {}
 screenshots         = []
 camera_photos       = []
 locations           = []
 app_usage           = []
-installed_apps      = {}         # device_id -> [app dicts]
+installed_apps      = {}
 browser_history     = []
 activities          = []
 activity_counter    = 0
-device_screens      = {}         # device_id -> {width, height, density}
+device_screens      = {}
 
 command_queues      = defaultdict(deque)
 command_results     = {}
-control_devices     = {}         # device_id -> last_poll_ts
-device_online_state = {}         # device_id -> bool
-device_agent_pid    = {}         # device_id -> {pid, version, first_seen}
+control_devices     = {}
+device_online_state = {}
+device_agent_pid    = {}
 
-# v1.2.4: Fingerprint-based canonical ID mapping.
-# (hostname, public_ip) -> canonical device_id
-# This handles the case where two different agents on the same physical
-# machine register with two different IDs.
-device_fingerprint  = {}         # fingerprint -> canonical_device_id
+# Fingerprint map: (hostname|public_ip) -> canonical device_id
+device_fingerprint  = {}
 fingerprint_lock    = threading.Lock()
+
+# Poll counts for throttled logging
+poll_counts         = defaultdict(int)
 
 ping_thread  = None
 ping_running = False
@@ -146,12 +147,12 @@ ping_interval = 240
 
 # Thresholds
 OFFLINE_THRESHOLD = 15       # seconds without poll = offline
-OFFLINE_GRACE     = 30
-STALE_CUTOFF      = 300
-ORPHAN_CUTOFF     = 600
-RESULT_TTL        = 300
-PENDING_TTL       = 90       # v1.2.4: how long a "registered but never
-                             # polled" device is kept in `devices`
+OFFLINE_GRACE     = 30       # seconds before cache purge
+STALE_CUTOFF      = 300      # seconds before hidden from /api/devices
+ORPHAN_CUTOFF     = 600      # seconds before full deletion
+RESULT_TTL        = 300      # command result expiry
+PENDING_TTL       = 90       # registered-but-never-polled grace
+APPS_GRACE        = 300      # v1.2.5: apps served for devices offline < 5 min
 
 _stop_event = threading.Event()
 
@@ -200,10 +201,9 @@ def _device_age(device_id: str, now: Optional[float] = None) -> Optional[float]:
     return now - last_poll
 
 # ============================================================
-# v1.2.4 — CANONICAL ID RESOLUTION
+# CANONICAL ID RESOLUTION
 # ============================================================
 def _fingerprint_for(hostname: str, public_ip: str) -> Optional[str]:
-    """Return a stable fingerprint for a physical machine."""
     if not hostname and not public_ip:
         return None
     return f"{(hostname or '').strip().lower()}|{(public_ip or '').strip()}"
@@ -211,11 +211,6 @@ def _fingerprint_for(hostname: str, public_ip: str) -> Optional[str]:
 def _resolve_canonical_id(incoming_id: str,
                           hostname: str = "",
                           public_ip: str = "") -> str:
-    """
-    Return the canonical device ID to use for a given incoming ID.
-    If another device is already active with the same fingerprint,
-    return that one; otherwise return the incoming one and register it.
-    """
     fp = _fingerprint_for(hostname, public_ip)
     if not fp:
         return incoming_id
@@ -223,19 +218,16 @@ def _resolve_canonical_id(incoming_id: str,
     with fingerprint_lock:
         existing = device_fingerprint.get(fp)
         if existing and existing != incoming_id:
-            # Is the existing one still alive?
             now = time.time()
             last_poll = control_devices.get(existing, 0)
             existing_age = now - last_poll if last_poll else None
             if existing_age is not None and existing_age < OFFLINE_THRESHOLD * 4:
                 logger.warning(
-                    f"🔀 Device fingerprint collision: incoming "
-                    f"{incoming_id[:8]} → reusing canonical {existing[:8]} "
-                    f"(host={hostname}, ip={public_ip})"
+                    f"🔀 Fingerprint collision: {incoming_id[:8]} → "
+                    f"reusing canonical {existing[:8]}"
                 )
                 return existing
             else:
-                # Existing is stale — let the new one take over
                 logger.info(
                     f"🔀 Canonical takeover: {existing[:8]} stale → "
                     f"adopting {incoming_id[:8]}"
@@ -247,10 +239,8 @@ def _resolve_canonical_id(incoming_id: str,
             return incoming_id
 
 def _get_public_ip_from_request() -> str:
-    """Extract the client's public IP from the request."""
     xff = request.headers.get('X-Forwarded-For', '')
     if xff:
-        # First IP in the list is the original client
         return xff.split(',')[0].strip()
     return request.remote_addr or ''
 
@@ -376,7 +366,7 @@ def ping_server():
     while ping_running and not _stop_event.is_set():
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.2.4')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.2.5')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug("✅ Self-ping OK")
@@ -584,15 +574,11 @@ def _purge_device_data(device_id: str):
         logger.warning(f"Purge error for {device_id[:8]}: {e}")
 
 def _cleanup_pending_registrations():
-    """
-    v1.2.4: Remove devices that have registered but never polled
-    within PENDING_TTL seconds. Prevents ghost device registrations.
-    """
     now = time.time()
     removed = []
     for did, info in list(devices.items()):
         if did in control_devices:
-            continue   # it has polled at least once
+            continue
         last_seen = info.get('last_seen', '')
         if not last_seen:
             continue
@@ -637,7 +623,6 @@ def _cleanup_orphans():
             device_agent_pid.pop(did, None)
             screenshots[:] = [s for s in screenshots if s.get('device_id') != did]
             removed.append(did)
-            # Also clean any fingerprints pointing at this ID
             with fingerprint_lock:
                 for fp, cid in list(device_fingerprint.items()):
                     if cid == did:
@@ -789,7 +774,7 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.2.4</h1><p>index.html not found in web/public/</p></body></html>'''
+    <h1>🛡️ PACON v1.2.5</h1><p>index.html not found in web/public/</p></body></html>'''
 
 # ============================================================
 # HEALTH & DIAGNOSTICS
@@ -803,7 +788,7 @@ def health_check():
         "success":          True,
         "service":          "PACON API",
         "status":           "running",
-        "version":          "1.2.4",
+        "version":          "1.2.5",
         "platform":         platform.system(),
         "devices":          len(devices),
         "online_agents":    online_agents,
@@ -846,7 +831,6 @@ def debug_devices():
             'agent_version':    pid_info.get('version'),
             'agent_first_seen': pid_info.get('first_seen'),
         }
-    # Also expose fingerprints
     fp_out = {}
     with fingerprint_lock:
         for fp, cid in device_fingerprint.items():
@@ -863,6 +847,51 @@ def debug_devices():
         'orphan_cutoff':     ORPHAN_CUTOFF,
         'pending_ttl':       PENDING_TTL,
         'result_ttl':        RESULT_TTL,
+        'apps_grace':        APPS_GRACE,
+    })
+
+@app.route('/api/debug/apps-status', methods=['GET'])
+@require_parent_auth
+def debug_apps_status():
+    """
+    v1.2.5: Diagnose why apps aren't showing for a device.
+    Shows which devices the server has polled, which have apps cached,
+    and whether the server would serve apps for them.
+    """
+    now = time.time()
+    out = {}
+    for did, info in devices.items():
+        age = now - control_devices.get(did, 0) if did in control_devices else None
+        has_apps = did in installed_apps
+        app_count = len(installed_apps.get(did, []))
+        would_serve = (
+            did in control_devices
+            and age is not None
+            and age < APPS_GRACE
+            and has_apps
+        )
+        out[did] = {
+            'name':              info.get('name'),
+            'has_polled':        did in control_devices,
+            'age_secs':          int(age) if age is not None else None,
+            'online':            (age is not None and age < OFFLINE_THRESHOLD),
+            'has_apps_cache':    has_apps,
+            'app_count':         app_count,
+            'apps_would_serve':  would_serve,
+            'reason': (
+                'ok' if would_serve
+                else 'never polled' if did not in control_devices
+                else f'offline for {int(age)}s (> {APPS_GRACE}s grace)' if age and age >= APPS_GRACE
+                else 'no apps reported yet'
+            ),
+        }
+    return jsonify({
+        'success':                  True,
+        'devices':                  out,
+        'installed_apps_keys':      [k[:8] for k in installed_apps.keys()],
+        'control_devices_keys':     [k[:8] for k in control_devices.keys()],
+        'apps_grace_seconds':       APPS_GRACE,
+        'server_time':              datetime.now().isoformat(),
     })
 
 # ============================================================
@@ -907,16 +936,14 @@ def get_status():
 @require_parent_auth
 def get_devices():
     """
-    v1.2.4: returns only devices that have POLLED recently.
-    A device that has only registered (no poll) is hidden.
-    Uses poll age, not registration age, as authoritative.
+    v1.2.5: Returns all recently-active devices.
+    Logs to console on every call.
     """
     now = time.time()
     enriched = {}
     for did, info in devices.items():
-        # Must have polled at least once
+        # Must have polled at least once — otherwise pending
         if did not in control_devices:
-            # Give it a chance: if registration is very recent, show as pending
             ls = info.get('last_seen', '')
             if ls:
                 try:
@@ -942,7 +969,16 @@ def get_devices():
         d['last_poll_secs'] = int(age)
         d['agent_pid'] = device_agent_pid.get(did, {}).get('pid')
         d['agent_version'] = device_agent_pid.get(did, {}).get('version')
+        d['app_count'] = len(installed_apps.get(did, []))
         enriched[did] = d
+
+    # ✅ v1.2.5: Console logging for every request
+    online_count = sum(1 for d in enriched.values() if d.get('online'))
+    pending_count = sum(1 for d in enriched.values() if d.get('pending'))
+    print(f"📋 [/api/devices] returning {len(enriched)} device(s) — "
+          f"{online_count} online, {pending_count} pending. "
+          f"IDs: {[d[:8] for d in enriched.keys()]}",
+          flush=True)
 
     return jsonify({"success": True, "devices": enriched})
 
@@ -1075,35 +1111,77 @@ def get_activity():
     })
 
 # ============================================================
-# APP ENDPOINTS
+# APP ENDPOINTS — v1.2.5 with diagnostic logging
 # ============================================================
 @app.route('/api/apps', methods=['GET'])
 @require_parent_auth
 def get_apps():
+    """v1.2.5: Returns apps with 5-min grace period after last poll."""
     device_id = request.args.get('deviceId', '')
     limit     = request.args.get('limit', 50, type=int)
     now       = time.time()
 
     if device_id:
-        if not _is_device_online(device_id, now):
+        age = now - control_devices.get(device_id, 0) if device_id in control_devices else None
+        has_apps = device_id in installed_apps
+        cache_size = len(installed_apps.get(device_id, []))
+
+        print(f"📋 [/api/apps] device={device_id[:8]} "
+              f"age={int(age) if age else 'N/A'}s "
+              f"cache={cache_size}",
+              flush=True)
+
+        if age is None or age > APPS_GRACE:
+            print(f"   → REFUSED (age > {APPS_GRACE}s)", flush=True)
             return jsonify([])
         return jsonify(installed_apps.get(device_id, [])[:limit])
 
+    # No device — aggregate from recently-active devices
     result = []
     for did, apps in installed_apps.items():
-        if _is_device_online(did, now):
+        age = now - control_devices.get(did, 0) if did in control_devices else None
+        if age is not None and age < APPS_GRACE:
             result.extend(apps)
     return jsonify(result[:limit])
 
 @app.route('/api/apps/list', methods=['GET'])
 @require_parent_auth
 def apps_list():
+    """
+    v1.2.5: Return apps if device polled within APPS_GRACE seconds (5 min).
+    Logs to console on every call.
+    """
     device_id = request.args.get('deviceId', '')
+    now = time.time()
+
     if not device_id:
+        print(f"📋 [apps_list] no deviceId provided → []", flush=True)
         return jsonify([])
-    if not _is_device_online(device_id):
+
+    has_polled = device_id in control_devices
+    age = (now - control_devices.get(device_id, 0)) if has_polled else None
+    has_cache = device_id in installed_apps
+    cache_size = len(installed_apps.get(device_id, []))
+
+    # ✅ v1.2.5: Console log every request
+    print(f"📋 [apps_list] device={device_id[:8]} "
+          f"has_polled={has_polled} "
+          f"age={int(age) if age is not None else 'N/A'}s "
+          f"has_cache={has_cache} cache_size={cache_size}",
+          flush=True)
+
+    # Refuse only if never polled or offline for > APPS_GRACE seconds
+    if not has_polled:
+        print(f"   → REFUSED: device has never polled", flush=True)
         return jsonify([])
-    return jsonify(installed_apps.get(device_id, []))
+
+    if age is None or age > APPS_GRACE:
+        print(f"   → REFUSED: offline for {int(age)}s (> {APPS_GRACE}s grace)", flush=True)
+        return jsonify([])
+
+    apps = installed_apps.get(device_id, [])
+    print(f"   → RETURNING {len(apps)} apps", flush=True)
+    return jsonify(apps)
 
 @app.route('/api/apps/search', methods=['GET'])
 @require_parent_auth
@@ -1113,12 +1191,15 @@ def apps_search():
     if not q:
         return jsonify([])
     source = []
-    if device_id and _is_device_online(device_id):
-        source = installed_apps.get(device_id, [])
-    elif not device_id:
-        now = time.time()
+    now = time.time()
+    if device_id:
+        age = now - control_devices.get(device_id, 0) if device_id in control_devices else None
+        if age is not None and age < APPS_GRACE:
+            source = installed_apps.get(device_id, [])
+    else:
         for did, apps in installed_apps.items():
-            if _is_device_online(did, now):
+            age = now - control_devices.get(did, 0) if did in control_devices else None
+            if age is not None and age < APPS_GRACE:
                 source.extend(apps)
     results = [a for a in source
                if q in a.get('label', '').lower()
@@ -1222,22 +1303,18 @@ def monitor_user():
         version     = data.get('agent_version', 'unknown')
         mguid       = data.get('machine_guid', '')
         hostname    = data.get('hostname', data.get('deviceModel', ''))
-        # v1.2.4: use the client's public IP from the request
         req_ip      = _get_public_ip_from_request()
         public_ip   = data.get('public_ip', '') or req_ip
 
-        # v1.2.4: canonicalize the ID
         device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
         if device_id != incoming_id:
-            logger.info(f"🔀 Canonicalized {incoming_id[:8]} → {device_id[:8]} "
-                        f"(host={hostname}, ip={public_ip})")
+            logger.info(f"🔀 Canonicalized {incoming_id[:8]} → {device_id[:8]}")
 
-        # Duplicate-agent detection
         prev = device_agent_pid.get(device_id)
         if prev and prev.get('pid') != pid:
             logger.warning(
                 f"⚠️ Device {device_id[:8]} re-registered by new agent "
-                f"(old PID {prev.get('pid')}, new PID {pid}). Replacing."
+                f"(old PID {prev.get('pid')}, new PID {pid})"
             )
 
         device_agent_pid[device_id] = {
@@ -1267,8 +1344,9 @@ def monitor_user():
         add_activity('user_registered',
                      f"{data.get('name','User')} from {data.get('deviceModel','Unknown')}",
                      device_id)
-        logger.info(f"✅ User registered: {data.get('name')} ({data.get('deviceModel')}) "
-                    f"pid={pid} v={version} id={device_id[:8]}")
+        logger.info(f"✅ User registered: {data.get('name')} "
+                    f"({data.get('deviceModel')}) pid={pid} v={version} "
+                    f"id={device_id[:8]}")
         _mark_device_online(device_id)
         return jsonify({
             "success": True,
@@ -1295,7 +1373,6 @@ def monitor_screenshot():
         hostname   = data.get('deviceModel', '')
         public_ip  = _get_public_ip_from_request()
 
-        # Canonicalize ID
         device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
 
         if not image_data:
@@ -1398,8 +1475,16 @@ def monitor_apps():
         apps = data.get('apps', [])
         if device_id in devices:
             devices[device_id]['last_seen'] = datetime.now().isoformat()
+
         if apps and isinstance(apps[0], dict) and 'label' in apps[0]:
             installed_apps[device_id] = apps
+            # ✅ v1.2.5: console log when apps are stored
+            total_cached = sum(len(v) for v in installed_apps.values())
+            print(f"📱 [monitor_apps] STORED {len(apps)} apps for "
+                  f"device={device_id[:8]} "
+                  f"(total: {total_cached} apps across "
+                  f"{len(installed_apps)} device(s))",
+                  flush=True)
             logger.info(f"📱 Installed apps: {len(apps)} from {device_id[:8]}")
         else:
             app_usage.append({
@@ -1463,7 +1548,6 @@ def monitor_screen_info():
 # REMOTE CONTROL
 # ============================================================
 class DeviceOfflineError(Exception):
-    """Raised when queueing a command for an offline device."""
     pass
 
 def _enqueue(device_id: str, action: str,
@@ -1480,16 +1564,12 @@ def _enqueue(device_id: str, action: str,
                 last_poll = 0
 
     if not last_poll:
-        raise DeviceOfflineError(
-            f"device {device_id[:8]} has never polled"
-        )
+        raise DeviceOfflineError(f"device {device_id[:8]} has never polled")
 
     age = now - last_poll
     if age > OFFLINE_THRESHOLD:
         shown_age = min(int(age), 86400 * 365)
-        raise DeviceOfflineError(
-            f"device {device_id[:8]} offline for {shown_age}s"
-        )
+        raise DeviceOfflineError(f"device {device_id[:8]} offline for {shown_age}s")
 
     cmd_id = str(uuid.uuid4())
     item = {
@@ -1518,19 +1598,21 @@ def control_poll():
         return '', 204
     incoming_id = request.args.get('deviceId', 'unknown')
     public_ip   = _get_public_ip_from_request()
-    # v1.2.4: canonicalize using only public_ip (no hostname in poll request)
     device_id = _resolve_canonical_id(incoming_id, "", public_ip)
 
-    # Mark this ID as polling
     control_devices[device_id] = time.time()
 
-    # v1.2.4: also update last_seen so orphan cleanup knows it's alive
+    # ✅ v1.2.5: log every 10th poll per device
+    poll_counts[device_id] += 1
+    if poll_counts[device_id] % 10 == 1:
+        print(f"📡 [poll] device={device_id[:8]} "
+              f"poll #{poll_counts[device_id]}",
+              flush=True)
+
     if device_id in devices:
         devices[device_id]['last_seen'] = datetime.now().isoformat()
         devices[device_id]['status']    = 'active'
     else:
-        # Provisional entry so /api/devices can show it even before
-        # /api/monitor/user arrives
         devices[device_id] = {
             'id':              device_id,
             'name':            f"Device {device_id[:8]}",
@@ -1965,8 +2047,25 @@ except Exception:
 # ============================================================
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.2.4 — GODMODE")
+    print("  PACON SERVICE v1.2.5 — GODMODE DIAGNOSTIC")
     print("=" * 70)
+    print(f"  Web dir:          {WEB_DIR}")
+    print(f"  Running on Render:{IS_RENDER}")
+    print(f"  Parent PIN:       {'SET' if PARENT_PIN else 'NOT SET'}")
+    print(f"  Agent PIN:        {'SET' if AGENT_PIN else 'NOT SET'}")
+    print(f"  Telegram:         {'ENABLED' if telegram_config.get('enabled') else 'disabled'}")
+    print(f"  Offline threshold:{OFFLINE_THRESHOLD}s")
+    print(f"  Apps grace:       {APPS_GRACE}s")
+    print(f"  Stale cutoff:     {STALE_CUTOFF}s")
+    print(f"  Orphan cutoff:    {ORPHAN_CUTOFF}s")
+    print("=" * 70)
+    print("  Console log prefixes you'll see:")
+    print("    📋 [/api/devices]     — devices returned to UI")
+    print("    📋 [apps_list]        — app-list requests + response size")
+    print("    📱 [monitor_apps]     — apps stored by the agent")
+    print("    📡 [poll]             — agent polls (every 10th)")
+    print("=" * 70)
+
     logger.info(f"Web dir: {WEB_DIR}")
     logger.info(f"Running on Render: {IS_RENDER}")
     logger.info(f"Parent PIN: {'SET' if PARENT_PIN else 'NOT SET (unprotected)'}")

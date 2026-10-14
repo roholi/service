@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛡️ PACON Remote Control v1.2.4</title>
+<title>🛡️ PACON Remote Control v1.2.5</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -243,13 +243,6 @@ body {
 .btn-ctrl.success:hover { background: var(--accent); border-color: var(--accent); }
 .btn-ctrl.key { font-family: 'Consolas', monospace; font-size: 10px; padding: 6px 4px; min-height: 32px; }
 .btn-ctrl:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
-.btn-ctrl.busy { position: relative; pointer-events: none; opacity: 0.7; }
-.btn-ctrl.busy::after {
-    content: ''; position: absolute; inset: 0;
-    border-radius: 6px; border: 2px solid transparent;
-    border-top-color: var(--blue);
-    animation: spin 0.6s linear infinite;
-}
 
 .text-input-group { display: flex; gap: 6px; }
 .text-input-group input {
@@ -449,7 +442,7 @@ body {
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
-        <span>PACON Remote Control v1.2.4</span>
+        <span>PACON Remote Control v1.2.5</span>
     </div>
     <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
         <option value="">-- Select Device --</option>
@@ -688,7 +681,7 @@ body {
 </div>
 
 <div class="rc-log" id="rcLog">
-    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.4 initialized</div>
+    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.5 initialized</div>
 </div>
 <button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
     <i class="fas fa-chevron-down"></i>
@@ -721,6 +714,7 @@ let currentAppList         = [];
 let appLoadInFlight        = false;
 let lastStatusPoll         = 0;
 let emptyDeviceListRetries = 0;
+let userManuallySelectedDevice = false;
 
 const pendingCommands = new Map();
 const deviceState = new Map();
@@ -730,6 +724,7 @@ const prefs = {
     notifyOnline: true,
     notifyOffline: true,
     hiddenFiles: false,
+    preferredDeviceId: '',
 };
 
 function loadPrefs() {
@@ -994,7 +989,6 @@ async function pollCommandResult(cmdId, attempts = 25, silentSuccess = false) {
     pendingCommands.delete(cmdId);
     const elapsed = (attempts * interval / 1000).toFixed(0);
     rcLog(`⚠️ Command ${cmdId.substring(0, 8)} timed out after ${elapsed}s`, 'warn');
-    rcLog(`   → Is the agent running on the child PC? Check /api/debug/devices`, 'info');
     return null;
 }
 
@@ -1008,7 +1002,6 @@ function deviceStatus(d) {
 }
 
 function isDeviceOnline(device) {
-    // v1.2.4: trust the server's `online` boolean exclusively
     if (typeof device.online === 'boolean') return device.online;
     if (device.pending) return false;
     if (typeof device.last_poll_secs === 'number') return device.last_poll_secs < 20;
@@ -1016,18 +1009,12 @@ function isDeviceOnline(device) {
     return (Date.now() - new Date(device.last_seen).getTime()) < 20000;
 }
 
-function isDeviceSelectable(d) {
-    // v1.2.4: pending devices can be selected (they just can't receive commands)
-    return true;
-}
-
 // ============================================================
-// DEVICES
+// DEVICES — v1.2.5: online devices always win
 // ============================================================
 async function rcRefreshDevices() {
     const data = await api('/api/devices');
     if (!data || !data.devices) {
-        // Transient failure — retry a few times with backoff
         if (emptyDeviceListRetries < 5) {
             emptyDeviceListRetries++;
             setTimeout(rcRefreshDevices, 1000 * emptyDeviceListRetries);
@@ -1036,15 +1023,20 @@ async function rcRefreshDevices() {
     }
     emptyDeviceListRetries = 0;
 
-    // v1.2.4: take EVERYTHING the server returns — it now filters stale
-    // devices by poll age, and pending devices are legit
     const devices = Object.values(data.devices);
+
+    // v1.2.5: Sort — online devices first
+    devices.sort((a, b) => {
+        const sa = deviceStatus(a) === 'online' ? 0 : deviceStatus(a) === 'pending' ? 1 : 2;
+        const sb = deviceStatus(b) === 'online' ? 0 : deviceStatus(b) === 'pending' ? 1 : 2;
+        if (sa !== sb) return sa - sb;
+        return (a.name || '').localeCompare(b.name || '');
+    });
 
     const hash = devices.map(d => d.id + '|' + (d.last_poll_secs || '') + '|' + deviceStatus(d)).sort().join(',');
     if (hash !== lastDeviceIdsHash) {
         lastDeviceIdsHash = hash;
         const select = document.getElementById('deviceSelect');
-        const previousValue = select.value;
         select.innerHTML = '<option value="">-- Select Device --</option>';
         devices.forEach(d => {
             const st = deviceStatus(d);
@@ -1056,15 +1048,34 @@ async function rcRefreshDevices() {
             select.appendChild(opt);
         });
 
+        // v1.2.5: Auto-select logic
         if (devices.length === 0) {
             currentDeviceId = null;
-        } else if (!currentDeviceId || !devices.some(d => d.id === currentDeviceId)) {
-            // Prefer online, then pending, then any
-            const onlineDevice = devices.find(d => deviceStatus(d) === 'online');
-            const pendingDevice = devices.find(d => deviceStatus(d) === 'pending');
-            rcSelectDevice((onlineDevice || pendingDevice || devices[0]).id);
         } else {
-            select.value = currentDeviceId;
+            const current = devices.find(d => d.id === currentDeviceId);
+            const currentIsOnline = current && deviceStatus(current) === 'online';
+
+            // Check the user's saved preference
+            const preferred = devices.find(d => d.id === prefs.preferredDeviceId);
+            const preferredIsOnline = preferred && deviceStatus(preferred) === 'online';
+
+            if (currentIsOnline) {
+                // Current is fine — keep it
+                select.value = currentDeviceId;
+            } else if (preferredIsOnline) {
+                // Prefer user's saved device if it's online
+                rcLog(`🔄 Auto-switching to saved device ${preferred.name || preferred.id.substring(0,8)}`, 'info');
+                rcSelectDevice(preferred.id);
+            } else {
+                // Fall back to first online, then first pending, then any
+                const firstOnline = devices.find(d => deviceStatus(d) === 'online');
+                const firstPending = devices.find(d => deviceStatus(d) === 'pending');
+                const target = firstOnline || firstPending || devices[0];
+                if (target.id !== currentDeviceId) {
+                    rcLog(`🔄 Auto-switching to ${target.name || target.id.substring(0,8)}`, 'info');
+                    rcSelectDevice(target.id);
+                }
+            }
         }
     }
 
@@ -1087,7 +1098,7 @@ async function rcRefreshDevices() {
                 lastPoll = 'registering';
             }
             return `
-                <div class="device-card ${active}" onclick="rcSelectDevice('${d.id}')">
+                <div class="device-card ${active}" onclick="rcUserSelectDevice('${d.id}')">
                     <div class="device-name">
                         ${escapeHtml(d.name || 'Unknown')}
                         <span class="device-badge ${st}">${st}</span>
@@ -1105,6 +1116,12 @@ async function rcRefreshDevices() {
     const anyOnline = devices.some(d => deviceStatus(d) === 'online');
     const anyPending = devices.some(d => deviceStatus(d) === 'pending');
     updateStatusPill(devices.length > 0, anyOnline, anyPending);
+}
+
+function rcUserSelectDevice(id) {
+    prefs.preferredDeviceId = id;
+    savePrefs();
+    rcSelectDevice(id);
 }
 
 function rcCopyDeviceId(id) {
@@ -1200,9 +1217,7 @@ async function rcRefreshScreen() {
         const shots = await api('/api/screenshots?limit=20');
         let s = null;
         if (Array.isArray(shots) && shots.length > 0) {
-            // Prefer shots explicitly tagged with our device_id
             s = shots.find(x => x.device_id === currentDeviceId);
-            // Fallback: newest shot (server doesn't always tag device_id)
             if (!s) s = shots[0];
         }
         if (!s) {
@@ -1668,7 +1683,7 @@ function formatBytes(n) {
 }
 
 // ============================================================
-// APP DRAWER
+// APP DRAWER — v1.2.5 with diagnostics
 // ============================================================
 async function rcLoadApps(force = false) {
     if (!currentDeviceId || appLoadInFlight) return;
@@ -1691,6 +1706,21 @@ async function rcLoadApps(force = false) {
         renderApps();
         if (apps.length > 0) {
             rcLog(`✅ Loaded ${apps.length} apps for ${requestedDevice.substring(0, 8)}`, 'success');
+        } else {
+            // v1.2.5: Diagnose empty response
+            rcLog(`⚠️ Server returned 0 apps for device ${requestedDevice.substring(0, 8)}`, 'warn');
+            const dbg = await api('/api/debug/devices');
+            if (dbg && dbg.devices && dbg.devices[requestedDevice]) {
+                const dd = dbg.devices[requestedDevice];
+                rcLog(`   Server has: has_apps=${dd.has_apps}, app_count=${dd.app_count}, online=${dd.online}`, 'info');
+                if (!dd.has_apps) {
+                    rcLog(`   ⏳ Agent hasn't reported apps yet (next report in ≤60s)`, 'info');
+                } else if (!dd.online) {
+                    rcLog(`   ⚠️ Device is offline — server refuses to serve apps`, 'warn');
+                }
+            } else {
+                rcLog(`   ⚠️ Device not in server DB — wrong device selected?`, 'warn');
+            }
         }
     } catch (e) {
         rcLog('App load error: ' + e.message, 'error');
@@ -1821,6 +1851,7 @@ async function rcUpdateAgentInfo() {
         <div class="row"><span>PID:</span><span class="val">${d.agent_pid || '—'}</span></div>
         <div class="row"><span>Version:</span><span class="val">${escapeHtml(d.agent_version || '—')}</span></div>
         <div class="row"><span>Last poll:</span><span class="val">${lastPoll}</span></div>
+        <div class="row"><span>Apps:</span><span class="val">${d.app_count || 0}</span></div>
     `;
     const ds = deviceState.get(currentDeviceId) || {};
     ds.online = d.online;
@@ -1862,9 +1893,6 @@ async function rcShowDiagnostics() {
         lines.push('');
     }
     lines.push(`Server time: ${data.server_now}`);
-    lines.push(`Offline threshold: ${data.offline_threshold}s`);
-    lines.push(`Purge grace: ${data.offline_grace}s`);
-    lines.push(`Pending TTL: ${data.pending_ttl}s`);
     alert(lines.join('\n'));
 }
 
@@ -2098,7 +2126,7 @@ function rcBootAfterAuth() {
         if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('✅ UI v1.2.4 ready. Select a device to begin.', 'success');
+    rcLog('✅ UI v1.2.5 ready. Select a device to begin.', 'success');
 }
 </script>
 </body>
