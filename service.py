@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PACON Service - v1.2.5
+PACON Service - v1.2.6
 =======================
+v1.2.6 changes:
+  - NEW: /api/agent/ping — stateless agent auth check (never registers device)
+  - NEW: /api/debug/clear-preflight — one-shot ghost device cleanup
+  - HARDENED: _resolve_canonical_id rejects __placeholder__ IDs
+  - HARDENED: /api/control/poll refuses placeholder device IDs
+  - HARDENED: orphan cleanup auto-purges placeholders
 v1.2.5 changes:
   - Console logging for every /api/devices and /api/apps/list call
   - /api/apps/list accepts devices offline up to 5 min (was 15s)
@@ -208,15 +214,42 @@ def _fingerprint_for(hostname: str, public_ip: str) -> Optional[str]:
         return None
     return f"{(hostname or '').strip().lower()}|{(public_ip or '').strip()}"
 
+def _is_placeholder_id(did: str) -> bool:
+    """
+    v1.2.6: Return True if the ID is a placeholder (starts/ends with __).
+    Placeholders must NEVER be used as canonical IDs.
+    """
+    return bool(did) and (did.startswith("__") or did.endswith("__"))
+
 def _resolve_canonical_id(incoming_id: str,
                           hostname: str = "",
                           public_ip: str = "") -> str:
+    """
+    v1.2.6: canonical ID resolution.
+    - Refuses to use placeholder IDs (__preflight__, __selftest__, etc.)
+    - Refuses to alias a real device to a placeholder fingerprint
+    """
+    # ✅ v1.2.6: reject placeholders outright
+    if _is_placeholder_id(incoming_id):
+        logger.warning(f"🚫 Refused placeholder device ID: {incoming_id}")
+        return incoming_id  # don't fingerprint, don't alias
+
     fp = _fingerprint_for(hostname, public_ip)
     if not fp:
         return incoming_id
 
     with fingerprint_lock:
         existing = device_fingerprint.get(fp)
+
+        # ✅ v1.2.6: if the fingerprint points to a placeholder, replace it
+        if existing and _is_placeholder_id(existing):
+            logger.info(
+                f"🧹 Replacing placeholder fingerprint "
+                f"{existing} → {incoming_id[:8]}"
+            )
+            device_fingerprint[fp] = incoming_id
+            return incoming_id
+
         if existing and existing != incoming_id:
             now = time.time()
             last_poll = control_devices.get(existing, 0)
@@ -366,7 +399,7 @@ def ping_server():
     while ping_running and not _stop_event.is_set():
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.2.5')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.2.6')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug("✅ Self-ping OK")
@@ -599,6 +632,18 @@ def _cleanup_orphans():
     now = time.time()
     removed = []
     all_ids = set(devices.keys()) | set(control_devices.keys())
+
+    # ✅ v1.2.6: aggressively purge any placeholder devices
+    for did in list(devices.keys()):
+        if _is_placeholder_id(did):
+            devices.pop(did, None)
+            control_devices.pop(did, None)
+            device_online_state.pop(did, None)
+            installed_apps.pop(did, None)
+            device_screens.pop(did, None)
+            device_agent_pid.pop(did, None)
+            removed.append(did)
+
     for did in all_ids:
         info = devices.get(did, {})
         last_poll = control_devices.get(did, 0)
@@ -774,7 +819,7 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.2.5</h1><p>index.html not found in web/public/</p></body></html>'''
+    <h1>🛡️ PACON v1.2.6</h1><p>index.html not found in web/public/</p></body></html>'''
 
 # ============================================================
 # HEALTH & DIAGNOSTICS
@@ -788,7 +833,7 @@ def health_check():
         "success":          True,
         "service":          "PACON API",
         "status":           "running",
-        "version":          "1.2.5",
+        "version":          "1.2.6",
         "platform":         platform.system(),
         "devices":          len(devices),
         "online_agents":    online_agents,
@@ -802,6 +847,52 @@ def health_check():
         "queued_commands":  sum(len(q) for q in command_queues.values()),
         "timestamp":        datetime.now().isoformat(),
     })
+
+# ============================================================
+# v1.2.6: STATELESS AGENT AUTH CHECK
+# ============================================================
+@app.route('/api/agent/ping', methods=['GET'])
+@require_agent_auth
+def agent_ping():
+    """
+    v1.2.6: Lightweight auth check for agents.
+    NEVER registers a device. NEVER stores a fingerprint.
+    Used by the agent's network pre-flight instead of /api/control/poll.
+    """
+    return jsonify({
+        'success':     True,
+        'pong':        True,
+        'server_time': datetime.now().isoformat(),
+        'client_ip':   _client_ip(),
+        'agent_pin_ok': True,
+    })
+
+
+@app.route('/api/debug/clear-preflight', methods=['POST'])
+@require_parent_auth
+def clear_preflight():
+    """
+    v1.2.6: One-shot cleanup of any ghost devices with '__' prefix.
+    This includes '__preflight__', '__selftest__', '__diag__', etc.
+    """
+    removed = []
+    for did in list(devices.keys()):
+        if did == "__preflight__" or did.startswith("__"):
+            devices.pop(did, None)
+            control_devices.pop(did, None)
+            device_online_state.pop(did, None)
+            installed_apps.pop(did, None)
+            device_screens.pop(did, None)
+            device_agent_pid.pop(did, None)
+            screenshots[:] = [s for s in screenshots if s.get('device_id') != did]
+            removed.append(did)
+    with fingerprint_lock:
+        for fp, cid in list(device_fingerprint.items()):
+            if cid == "__preflight__" or (cid and cid.startswith("__")):
+                device_fingerprint.pop(fp, None)
+                removed.append(f"fp({fp[:30]})")
+    logger.info(f"🧹 Cleared preflight ghosts: {removed}")
+    return jsonify({'success': True, 'removed': removed})
 
 @app.route('/api/debug/devices', methods=['GET'])
 @require_parent_auth
@@ -1596,7 +1687,14 @@ def _enqueue_response(device_id, action, params=None, ttl=12.0):
 def control_poll():
     if request.method == 'OPTIONS':
         return '', 204
+
     incoming_id = request.args.get('deviceId', 'unknown')
+
+    # ✅ v1.2.6: refuse placeholder device IDs
+    if _is_placeholder_id(incoming_id):
+        logger.warning(f"🚫 Refused poll from placeholder ID: {incoming_id}")
+        return jsonify({"success": False, "error": "placeholder id not allowed"}), 400
+
     public_ip   = _get_public_ip_from_request()
     device_id = _resolve_canonical_id(incoming_id, "", public_ip)
 
@@ -2047,7 +2145,7 @@ except Exception:
 # ============================================================
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.2.5 — GODMODE DIAGNOSTIC")
+    print("  PACON SERVICE v1.2.6 — STATELESS AGENT AUTH")
     print("=" * 70)
     print(f"  Web dir:          {WEB_DIR}")
     print(f"  Running on Render:{IS_RENDER}")
