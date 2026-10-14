@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛡️ PACON Remote Control v1.2.2</title>
+<title>🛡️ PACON Remote Control v1.2.3</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -23,6 +23,16 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.001s !important;
+        transition-duration: 0.001s !important;
+    }
+}
+
+/* ============================================================
+   PIN GATE
+   ============================================================ */
 #pinGate {
     position: fixed; inset: 0; z-index: 10000;
     background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
@@ -61,6 +71,9 @@ body {
 #pinError { color: var(--red); font-size: 12px; margin-top: 16px; min-height: 18px; }
 #pinHint { color: var(--text-secondary); font-size: 11px; margin-top: 20px; }
 
+/* ============================================================
+   HEADER
+   ============================================================ */
 .rc-header {
     height: 48px; background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
@@ -91,6 +104,9 @@ body {
 }
 .rc-header .header-btn:hover { background: var(--bg-panel); color: var(--text-primary); }
 
+/* ============================================================
+   LAYOUT
+   ============================================================ */
 .rc-body { display: flex; height: calc(100vh - 48px); overflow: hidden; }
 .rc-sidebar-left {
     width: 220px; background: var(--bg-secondary);
@@ -109,6 +125,7 @@ body {
     color: var(--text-secondary); transition: all 0.15s;
 }
 .menu-item:hover { background: var(--bg-panel); color: var(--text-primary); }
+.menu-item.disabled { opacity: 0.4; pointer-events: none; }
 .menu-item i { width: 16px; text-align: center; }
 .device-list { display: flex; flex-direction: column; gap: 4px; }
 .device-card {
@@ -119,13 +136,26 @@ body {
 .device-card.active { border-color: var(--accent); background: rgba(35, 134, 54, 0.1); }
 .device-card .device-name { font-weight: 600; color: var(--text-primary); }
 .device-card .device-model { color: var(--text-secondary); font-size: 10px; margin-top: 2px; }
+.device-card .device-id {
+    color: var(--text-secondary); font-size: 9px;
+    font-family: 'Consolas', monospace;
+    cursor: pointer; user-select: none;
+}
+.device-card .device-id:hover { color: var(--blue); }
 .device-card .device-badge {
     display: inline-block; font-size: 9px; padding: 1px 6px;
     border-radius: 8px; margin-left: 6px; font-weight: 600;
 }
 .device-card .device-badge.online { background: rgba(35, 134, 54, 0.2); color: #3fb950; }
 .device-card .device-badge.offline { background: rgba(218, 54, 51, 0.2); color: #f85149; }
+.device-card .device-meta {
+    display: flex; justify-content: space-between;
+    font-size: 9px; color: var(--text-secondary); margin-top: 3px;
+}
 
+/* ============================================================
+   SCREEN
+   ============================================================ */
 .rc-screen-area {
     flex: 1; background: #000;
     display: flex; align-items: center; justify-content: center;
@@ -134,6 +164,7 @@ body {
 .rc-screen-wrapper {
     position: relative; max-height: 100%; max-width: 100%;
     display: flex; align-items: center; justify-content: center;
+    transition: transform 0.1s ease;
 }
 #screenImg {
     display: block; max-width: 100%;
@@ -162,6 +193,24 @@ body {
     gap: 12px; z-index: 15; border: 1px solid var(--border);
 }
 .screen-info-bar .badge { background: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; }
+.screen-info-bar .badge.warn { background: var(--orange); }
+
+/* Zoom controls */
+.zoom-controls {
+    position: absolute; top: 12px; right: 12px;
+    display: flex; gap: 4px; z-index: 15;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(10px);
+    border-radius: 8px; padding: 4px;
+    border: 1px solid var(--border);
+}
+.zoom-controls button {
+    background: transparent; border: none; color: var(--text-secondary);
+    width: 28px; height: 28px; border-radius: 4px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; transition: all 0.15s;
+}
+.zoom-controls button:hover { background: var(--bg-panel); color: var(--text-primary); }
+
 .touch-indicator {
     position: absolute; width: 40px; height: 40px;
     border-radius: 50%; background: rgba(31, 111, 235, 0.4);
@@ -177,6 +226,9 @@ body {
 .touch-indicator.right { background: rgba(218, 54, 51, 0.4); border-color: var(--red); }
 .touch-indicator.double { background: rgba(137, 87, 229, 0.5); border-color: var(--purple); }
 
+/* ============================================================
+   RIGHT SIDEBAR
+   ============================================================ */
 .rc-sidebar-right {
     width: 320px; background: var(--bg-secondary);
     border-left: 1px solid var(--border); padding: 12px;
@@ -224,6 +276,14 @@ body {
     background: var(--blue); border: none; color: white;
     padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12px;
 }
+
+.app-search {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    color: var(--text-primary); padding: 6px 10px; border-radius: 6px;
+    font-size: 11px; width: 100%; outline: none; margin-bottom: 6px;
+}
+.app-search:focus { border-color: var(--blue); }
+
 .app-drawer {
     display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 8px; max-height: 320px; overflow-y: auto; padding: 4px;
@@ -246,6 +306,38 @@ body {
     max-width: 60px; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap;
 }
+.app-empty {
+    grid-column: span 4; text-align: center;
+    color: var(--text-secondary); font-size: 11px; padding: 12px;
+}
+
+.breadcrumb-trail {
+    display: flex; flex-wrap: wrap; gap: 2px;
+    font-size: 10px; margin-bottom: 6px;
+    padding: 4px 6px; background: var(--bg-secondary);
+    border-radius: 6px; min-height: 24px;
+    align-items: center;
+}
+.breadcrumb-trail .crumb {
+    padding: 2px 6px; border-radius: 4px;
+    cursor: pointer; color: var(--text-secondary);
+    transition: all 0.15s;
+}
+.breadcrumb-trail .crumb:hover { background: var(--bg-panel); color: var(--text-primary); }
+.breadcrumb-trail .crumb.current { color: var(--text-primary); font-weight: 600; }
+.breadcrumb-trail .sep { color: var(--text-secondary); }
+
+.file-toolbar {
+    display: flex; gap: 4px; margin-bottom: 6px;
+}
+.file-toolbar button {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    color: var(--text-secondary); padding: 3px 8px; border-radius: 4px;
+    font-size: 10px; cursor: pointer; transition: all 0.15s;
+}
+.file-toolbar button:hover { background: var(--bg-panel); color: var(--text-primary); }
+.file-toolbar button.active { background: var(--blue); border-color: var(--blue); color: white; }
+
 .file-item {
     padding: 4px 6px; cursor: pointer; border-radius: 4px;
     font-size: 11px; display: flex; align-items: center; gap: 6px;
@@ -255,6 +347,9 @@ body {
 .file-item i { width: 14px; text-align: center; }
 .file-item .size { margin-left: auto; color: var(--text-secondary); font-size: 9px; }
 
+/* ============================================================
+   LOG
+   ============================================================ */
 .rc-log {
     position: fixed; bottom: 0; left: 220px; right: 320px;
     background: rgba(13, 17, 23, 0.95);
@@ -276,6 +371,54 @@ body {
     color: var(--text-secondary); padding: 4px 10px;
     border-radius: 6px; font-size: 10px; cursor: pointer; z-index: 31;
 }
+
+/* ============================================================
+   TOASTS
+   ============================================================ */
+#toastContainer {
+    position: fixed; top: 60px; right: 20px;
+    z-index: 9999; display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none;
+}
+.toast {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 16px;
+    font-size: 12px; color: var(--text-primary);
+    min-width: 240px; max-width: 400px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    display: flex; align-items: center; gap: 10px;
+    pointer-events: auto;
+    animation: toastIn 0.25s ease;
+}
+.toast.success { border-left: 3px solid var(--accent); }
+.toast.error { border-left: 3px solid var(--red); }
+.toast.warn { border-left: 3px solid var(--orange); }
+.toast.info { border-left: 3px solid var(--blue); }
+.toast i { font-size: 14px; }
+.toast.success i { color: var(--accent); }
+.toast.error i { color: var(--red); }
+.toast.warn i { color: var(--orange); }
+.toast.info i { color: var(--blue); }
+@keyframes toastIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* Sticky device indicator */
+.sticky-device {
+    position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);
+    border: 1px solid var(--border); border-radius: 20px;
+    padding: 4px 14px; font-size: 11px;
+    z-index: 29; display: flex; align-items: center; gap: 8px;
+    pointer-events: none;
+}
+.sticky-device .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 6px var(--accent);
+}
+.sticky-device.offline .dot { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
 .tg-input {
     background: var(--bg-secondary); border: 1px solid var(--border);
     color: var(--text-primary); padding: 6px 8px;
@@ -286,22 +429,36 @@ body {
     display: flex; align-items: center; gap: 4px; cursor: pointer;
     font-size: 10px; color: var(--text-secondary);
 }
+
+.agent-info {
+    background: var(--bg-secondary); border-radius: 6px;
+    padding: 6px 8px; margin-bottom: 8px;
+    font-size: 10px; font-family: 'Consolas', monospace;
+}
+.agent-info .row {
+    display: flex; justify-content: space-between;
+    color: var(--text-secondary);
+}
+.agent-info .row .val { color: var(--text-primary); }
 </style>
 </head>
 <body>
 
+<!-- ============================================================
+     PIN GATE
+     ============================================================ -->
 <div id="pinGate" class="hidden">
     <div class="pin-card">
         <div class="pin-icon"><i class="fas fa-shield-alt"></i></div>
         <h2>PACON Dashboard</h2>
         <p>Enter your 6-digit PIN to unlock</p>
         <div class="pin-inputs">
-            <input type="password" maxlength="1" inputmode="numeric" data-i="0">
-            <input type="password" maxlength="1" inputmode="numeric" data-i="1">
-            <input type="password" maxlength="1" inputmode="numeric" data-i="2">
-            <input type="password" maxlength="1" inputmode="numeric" data-i="3">
-            <input type="password" maxlength="1" inputmode="numeric" data-i="4">
-            <input type="password" maxlength="1" inputmode="numeric" data-i="5">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="0" autocomplete="off">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="1" autocomplete="off">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="2" autocomplete="off">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="3" autocomplete="off">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="4" autocomplete="off">
+            <input type="password" maxlength="1" inputmode="numeric" data-i="5" autocomplete="off">
         </div>
         <button id="pinSubmit" disabled>Unlock</button>
         <div id="pinError"></div>
@@ -309,10 +466,13 @@ body {
     </div>
 </div>
 
+<!-- ============================================================
+     HEADER
+     ============================================================ -->
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
-        <span>PACON Remote Control v1.2.2</span>
+        <span>PACON Remote Control v1.2.3</span>
     </div>
     <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
         <option value="">-- Select Device --</option>
@@ -322,6 +482,7 @@ body {
         <i class="fas fa-pause"></i> <span id="refreshLabel">Auto</span>
     </button>
     <button class="header-btn" onclick="rcForceScreenshot()" title="Force screenshot"><i class="fas fa-camera"></i></button>
+    <button class="header-btn" onclick="rcShowDiagnostics()" title="Diagnostics"><i class="fas fa-stethoscope"></i></button>
     <button class="header-btn" onclick="rcLogout()" title="Lock dashboard"><i class="fas fa-lock"></i></button>
     <div class="status-pill offline" id="statusPill">
         <div class="dot"></div>
@@ -329,8 +490,12 @@ body {
     </div>
 </div>
 
+<!-- ============================================================
+     BODY
+     ============================================================ -->
 <div class="rc-body">
 
+    <!-- LEFT SIDEBAR -->
     <div class="rc-sidebar-left">
         <div>
             <div class="sidebar-section-title">Devices</div>
@@ -340,19 +505,21 @@ body {
         </div>
         <div>
             <div class="sidebar-section-title">Quick Actions</div>
-            <div class="menu-item" onclick="rcKey('screenshot')"><i class="fas fa-camera"></i> Snapshot</div>
-            <div class="menu-item" onclick="rcKey('wake')"><i class="fas fa-sun"></i> Wake Screen</div>
-            <div class="menu-item" onclick="rcKey('lock')"><i class="fas fa-lock"></i> Lock Screen</div>
-            <div class="menu-item" onclick="rcKey('notifications')"><i class="fas fa-bell"></i> Notifications</div>
+            <div class="menu-item" id="qmi-screenshot" onclick="rcKey('screenshot')"><i class="fas fa-camera"></i> Snapshot</div>
+            <div class="menu-item" id="qmi-wake" onclick="rcKey('wake')"><i class="fas fa-sun"></i> Wake Screen</div>
+            <div class="menu-item" id="qmi-lock" onclick="rcKey('lock')"><i class="fas fa-lock"></i> Lock Screen</div>
+            <div class="menu-item" id="qmi-notifications" onclick="rcKey('notifications')"><i class="fas fa-bell"></i> Notifications</div>
         </div>
         <div>
             <div class="sidebar-section-title">Session</div>
             <div class="menu-item" onclick="rcRefreshScreen()"><i class="fas fa-redo"></i> Refresh</div>
             <div class="menu-item" onclick="rcClearLog()"><i class="fas fa-eraser"></i> Clear Log</div>
+            <div class="menu-item" onclick="rcShowShortcuts()"><i class="fas fa-keyboard"></i> Shortcuts</div>
             <div class="menu-item" onclick="rcLogout()"><i class="fas fa-sign-out-alt"></i> Lock</div>
         </div>
     </div>
 
+    <!-- SCREEN -->
     <div class="rc-screen-area">
         <div class="rc-screen-wrapper" id="screenWrapper">
             <img id="screenImg" alt="Device screen" />
@@ -361,6 +528,11 @@ body {
                 <div class="spinner-ring"></div>
                 <div style="font-size: 12px; color: var(--text-secondary);">Waiting for screen...</div>
             </div>
+            <div class="zoom-controls">
+                <button onclick="rcZoom(-1)" title="Zoom out"><i class="fas fa-search-minus"></i></button>
+                <button onclick="rcZoom(0)" title="Reset zoom"><i class="fas fa-compress"></i></button>
+                <button onclick="rcZoom(1)" title="Zoom in"><i class="fas fa-search-plus"></i></button>
+            </div>
             <div class="screen-info-bar" id="screenInfoBar" style="display: none;">
                 <span class="badge" id="fpsBadge">0 FPS</span>
                 <span id="screenInfo">—</span>
@@ -368,8 +540,10 @@ body {
         </div>
     </div>
 
+    <!-- RIGHT SIDEBAR -->
     <div class="rc-sidebar-right">
 
+        <!-- NAVIGATION -->
         <div class="control-panel">
             <h6><i class="fas fa-gamepad"></i> Navigation</h6>
             <div class="btn-grid">
@@ -382,6 +556,7 @@ body {
             </div>
         </div>
 
+        <!-- KEYBOARD SHORTCUTS -->
         <div class="control-panel">
             <h6><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h6>
             <div class="btn-grid triple">
@@ -406,11 +581,12 @@ body {
             </div>
         </div>
 
+        <!-- TEXT INPUT -->
         <div class="control-panel">
             <h6><i class="fas fa-font"></i> Text Input</h6>
             <div class="text-input-group">
                 <input type="text" id="rcTextInput" placeholder="Type text..." />
-                <button onclick="rcSendText()"><i class="fas fa-paper-plane"></i></button>
+                <button onclick="rcSendText()" title="Send"><i class="fas fa-paper-plane"></i></button>
             </div>
             <div style="margin-top: 8px; display: flex; gap: 6px;">
                 <button class="btn-ctrl" style="flex: 1;" onclick="rcKey('backspace')"><i class="fas fa-delete-left"></i> Backspace</button>
@@ -423,6 +599,7 @@ body {
             </div>
         </div>
 
+        <!-- GODMODE -->
         <div class="control-panel">
             <h6><i class="fas fa-bolt"></i> Godmode</h6>
             <div class="btn-grid">
@@ -439,8 +616,19 @@ body {
             </div>
         </div>
 
+        <!-- FILE BROWSER -->
         <div class="control-panel">
             <h6><i class="fas fa-folder-open"></i> File Browser</h6>
+            <div class="breadcrumb-trail" id="rcBreadcrumb">
+                <span style="color:var(--text-secondary);font-size:10px;">No path yet</span>
+            </div>
+            <div class="file-toolbar">
+                <button onclick="rcQuickPath('C:\\\\Users')" title="Users"><i class="fas fa-users"></i> Users</button>
+                <button onclick="rcQuickPath('C:\\\\')" title="C:\"><i class="fas fa-hdd"></i> C:\</button>
+                <button onclick="rcQuickPath('%USERPROFILE%\\\\Desktop')" title="Desktop"><i class="fas fa-desktop"></i> Desktop</button>
+                <button id="rcHiddenToggle" onclick="rcToggleHidden()" title="Show hidden files"><i class="fas fa-eye-slash"></i></button>
+                <button onclick="rcFileUp()" title="Go up"><i class="fas fa-arrow-up"></i></button>
+            </div>
             <div class="text-input-group">
                 <input type="text" id="rcPathInput" placeholder="C:\Users\..." onkeydown="if(event.key==='Enter')rcListDir()" />
                 <button onclick="rcListDir()" title="Browse"><i class="fas fa-search"></i></button>
@@ -450,30 +638,30 @@ body {
                     Enter a path and press Enter
                 </div>
             </div>
-            <div style="display:flex;gap:6px;margin-top:6px;">
-                <button class="btn-ctrl" style="flex:1;font-size:10px;" onclick="rcQuickPath('C:\\\\Users')">
-                    <i class="fas fa-users"></i> Users
-                </button>
-                <button class="btn-ctrl" style="flex:1;font-size:10px;" onclick="rcQuickPath('C:\\\\')">
-                    <i class="fas fa-hdd"></i> C:\
-                </button>
-                <button class="btn-ctrl" style="flex:1;font-size:10px;" onclick="rcQuickPath('%USERPROFILE%\\\\Desktop')">
-                    <i class="fas fa-desktop"></i> Desktop
-                </button>
-            </div>
         </div>
 
+        <!-- APPS -->
         <div class="control-panel">
             <h6>
                 <i class="fas fa-th"></i> Apps
-                <button class="btn-ctrl" style="margin-left: auto; padding: 2px 8px; font-size: 10px;" onclick="rcLoadApps()">
+                <button class="btn-ctrl" style="margin-left: auto; padding: 2px 8px; font-size: 10px;" onclick="rcLoadApps(true)">
                     <i class="fas fa-sync"></i>
                 </button>
             </h6>
+            <input type="text" class="app-search" id="appSearch" placeholder="Search apps..." oninput="rcFilterApps()" />
             <div class="app-drawer" id="appDrawer">
-                <div style="grid-column: span 4; text-align: center; color: var(--text-secondary); font-size: 11px; padding: 12px;">
-                    Click <i class="fas fa-sync"></i> to load apps
-                </div>
+                <div class="app-empty">Click <i class="fas fa-sync"></i> to load apps</div>
+            </div>
+        </div>
+
+        <!-- AGENT INFO + TELEGRAM -->
+        <div class="control-panel">
+            <h6><i class="fas fa-info-circle"></i> Agent Info</h6>
+            <div class="agent-info" id="agentInfo">
+                <div class="row"><span>Status:</span><span class="val">—</span></div>
+                <div class="row"><span>PID:</span><span class="val">—</span></div>
+                <div class="row"><span>Version:</span><span class="val">—</span></div>
+                <div class="row"><span>Last poll:</span><span class="val">—</span></div>
             </div>
         </div>
 
@@ -517,6 +705,7 @@ body {
             </div>
         </div>
 
+        <!-- STREAM QUALITY -->
         <div class="control-panel">
             <h6><i class="fas fa-tachometer-alt"></i> Stream Quality</h6>
             <select class="form-select form-select-sm" id="streamQuality" style="background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); font-size: 11px;" onchange="rcSetQuality(this.value)">
@@ -530,35 +719,94 @@ body {
     </div>
 </div>
 
+<!-- STICKY DEVICE INDICATOR -->
+<div class="sticky-device offline" id="stickyDevice" style="display: none;">
+    <div class="dot"></div>
+    <span id="stickyDeviceText">—</span>
+</div>
+
+<!-- LOG -->
 <div class="rc-log" id="rcLog">
-    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.2 initialized</div>
+    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.3 initialized</div>
 </div>
 <button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
     <i class="fas fa-chevron-down"></i>
 </button>
+
+<!-- TOASTS -->
+<div id="toastContainer"></div>
 
 <script>
 // ============================================================
 // GLOBAL STATE
 // ============================================================
 const API_URL = window.location.origin;
-let currentDeviceId       = null;
-let autoRefreshTimer      = null;
-let autoRefreshEnabled    = true;
+let currentDeviceId        = null;
+let autoRefreshTimer       = null;
+let autoRefreshEnabled     = true;
 let currentRefreshInterval = 1000;
-let fpsCounter            = 0;
-let fpsTimestamp          = Date.now();
-let lastScreenshotFilename = null;
-let pressTimer            = null;
-let startPoint            = null;
-let isDragging            = false;
-let lastDeviceIdsHash     = '';
-let currentDeviceScreen   = null;
-let SESSION_TOKEN         = '';
-let clickCount            = 0;
-let lastClickTime         = 0;
+let fpsCounter             = 0;
+let fpsTimestamp           = Date.now();
+let pressTimer             = null;
+let startPoint             = null;
+let isDragging             = false;
+let lastDeviceIdsHash      = '';
+let currentDeviceScreen    = null;
+let SESSION_TOKEN          = '';
+let clickCount             = 0;
+let lastClickTime          = 0;
+let currentZoom            = 1.0;
+let showHiddenFiles        = false;
+let currentAppList         = [];
+let appLoadInFlight        = false;
+let lastStatusPoll         = 0;
 
 const pendingCommands = new Map();
+
+// Per-device state cache
+const deviceState = new Map();  // deviceId -> { lastScreenshotFilename, screenSize }
+
+// User preferences (persisted to localStorage)
+const prefs = {
+    refreshInterval: 1000,
+    notifyOnline: true,
+    notifyOffline: true,
+    hiddenFiles: false,
+};
+
+function loadPrefs() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('pacon.prefs') || '{}');
+        Object.assign(prefs, saved);
+        currentRefreshInterval = prefs.refreshInterval;
+        showHiddenFiles = prefs.hiddenFiles;
+    } catch (e) { /* ignore */ }
+}
+function savePrefs() {
+    try {
+        localStorage.setItem('pacon.prefs', JSON.stringify(prefs));
+    } catch (e) { /* ignore */ }
+}
+
+loadPrefs();
+
+// ============================================================
+// TOASTS
+// ============================================================
+function toast(msg, kind = 'info', duration = 4000) {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+    const el = document.createElement('div');
+    el.className = 'toast ' + kind;
+    const iconMap = { success: 'fa-check-circle', error: 'fa-exclamation-circle', warn: 'fa-exclamation-triangle', info: 'fa-info-circle' };
+    el.innerHTML = `<i class="fas ${iconMap[kind] || iconMap.info}"></i><span>${escapeHtml(msg)}</span>`;
+    container.appendChild(el);
+    setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(20px)';
+        setTimeout(() => el.remove(), 250);
+    }, duration);
+}
 
 // ============================================================
 // PIN GATE
@@ -604,6 +852,7 @@ async function pinSubmit() {
             SESSION_TOKEN = 'cookie';
             document.getElementById('pinGate').classList.add('hidden');
             rcLog('✅ Unlocked', 'success');
+            toast('Welcome back', 'success', 2000);
             rcBootAfterAuth();
             return;
         }
@@ -698,8 +947,10 @@ function rcLog(msg, cls = 'info') {
 function rcClearLog() { document.getElementById('rcLog').innerHTML = ''; rcLog('Log cleared', 'info'); }
 
 // ============================================================
-// API
+// API — with 401 recovery
 // ============================================================
+let authRecoveryInFlight = false;
+
 async function api(endpoint, method = 'GET', data = null) {
     try {
         const options = {
@@ -710,12 +961,18 @@ async function api(endpoint, method = 'GET', data = null) {
         if (data) options.body = JSON.stringify(data);
         const res = await fetch(API_URL + endpoint, options);
         if (res.status === 401) {
-            rcLog('🔒 Session expired', 'warn');
-            document.getElementById('pinGate').classList.remove('hidden');
-            pinClear();
+            if (!authRecoveryInFlight) {
+                authRecoveryInFlight = true;
+                rcLog('🔒 Session expired — re-authenticating', 'warn');
+                toast('Session expired — please unlock again', 'warn');
+                setTimeout(() => {
+                    document.getElementById('pinGate').classList.remove('hidden');
+                    pinClear();
+                    authRecoveryInFlight = false;
+                }, 500);
+            }
             return null;
         }
-        // Let callers see the JSON even on 4xx
         try {
             return await res.json();
         } catch (e) {
@@ -733,7 +990,7 @@ async function api(endpoint, method = 'GET', data = null) {
 // ============================================================
 async function rcSendAndTrack(endpoint, body, label, options = {}) {
     if (!currentDeviceId) {
-        rcLog('⚠️ No device selected', 'warn');
+        toast('No device selected', 'warn');
         return null;
     }
     const r = await api(endpoint, 'POST', { deviceId: currentDeviceId, ...body });
@@ -741,10 +998,13 @@ async function rcSendAndTrack(endpoint, body, label, options = {}) {
     // Fast-fail: server refused because device is offline
     if (r && r.success === false && r.offline) {
         rcLog(`❌ ${label} — ${r.error}`, 'error');
+        toast(`${label} — device offline`, 'error');
         return null;
     }
     if (!r || !r.success || !r.id) {
-        rcLog(`❌ ${label} — failed to queue${r && r.error ? ': ' + r.error : ''}`, 'error');
+        const err = r && r.error ? r.error : 'queue failed';
+        rcLog(`❌ ${label} — ${err}`, 'error');
+        if (!options.silent) toast(`${label} — ${err}`, 'error');
         return null;
     }
     rcLog(`⏳ ${label} queued (${r.id.substring(0, 8)})`, 'info');
@@ -763,9 +1023,13 @@ async function pollCommandResult(cmdId, attempts = 25, silentSuccess = false) {
         if (!r.pending) {
             pendingCommands.delete(cmdId);
             if (r.ok) {
-                if (!silentSuccess) rcLog(`✅ Command OK`, 'success');
+                if (!silentSuccess) {
+                    rcLog(`✅ Command OK`, 'success');
+                    toast('Command succeeded', 'success', 2000);
+                }
             } else {
                 rcLog(`❌ Command failed: ${r.error || 'unknown error'}`, 'error');
+                toast(`Failed: ${r.error || 'unknown'}`, 'error');
             }
             return r;
         }
@@ -783,7 +1047,12 @@ async function pollCommandResult(cmdId, attempts = 25, silentSuccess = false) {
 async function rcRefreshDevices() {
     const data = await api('/api/devices');
     if (!data || !data.devices) return;
-    const devices = Object.values(data.devices);
+    const devices = Object.values(data.devices).filter(d => {
+        if (!d.last_seen) return false;
+        const age = Date.now() - new Date(d.last_seen).getTime();
+        return age < 120000;   // 2-min client-side stale check
+    });
+
     const hash = devices.map(d => d.id + '|' + (d.last_seen || '')).sort().join(',');
     if (hash !== lastDeviceIdsHash) {
         lastDeviceIdsHash = hash;
@@ -797,13 +1066,18 @@ async function rcRefreshDevices() {
             opt.textContent = `${online ? '🟢' : '⚪'} ${d.name || 'Unknown'} (${d.model || 'Device'})`;
             select.appendChild(opt);
         });
-        if (previousValue && devices.some(d => d.id === previousValue)) select.value = previousValue;
-        if (!currentDeviceId && devices.length > 0) rcSelectDevice(devices[0].id);
-        else if (currentDeviceId && !devices.some(d => d.id === currentDeviceId)) {
+
+        if (devices.length === 0) {
             currentDeviceId = null;
-            if (devices.length > 0) rcSelectDevice(devices[0].id);
+        } else if (!currentDeviceId || !devices.some(d => d.id === currentDeviceId)) {
+            // Prefer online device
+            const onlineDevice = devices.find(d => isDeviceOnline(d));
+            rcSelectDevice((onlineDevice || devices[0]).id);
+        } else {
+            select.value = currentDeviceId;
         }
     }
+
     const list = document.getElementById('deviceList');
     if (devices.length === 0) {
         list.innerHTML = '<div style="font-size: 11px; color: var(--text-secondary); padding: 8px;">No devices connected</div>';
@@ -811,18 +1085,35 @@ async function rcRefreshDevices() {
         list.innerHTML = devices.map(d => {
             const online = isDeviceOnline(d);
             const active = d.id === currentDeviceId ? 'active' : '';
+            const shortId = escapeHtml((d.id || '').substring(0, 8));
+            const lastPoll = d.last_poll_secs !== undefined && d.last_poll_secs !== null
+                ? `${d.last_poll_secs}s ago` : '—';
             return `
                 <div class="device-card ${active}" onclick="rcSelectDevice('${d.id}')">
                     <div class="device-name">
                         ${escapeHtml(d.name || 'Unknown')}
                         <span class="device-badge ${online ? 'online' : 'offline'}">${online ? 'online' : 'offline'}</span>
                     </div>
-                    <div class="device-model">${escapeHtml(d.model || 'Device')} • ${escapeHtml(d.android_version || '')}</div>
+                    <div class="device-model">${escapeHtml(d.model || 'Device')}</div>
+                    <div class="device-meta">
+                        <span class="device-id" onclick="event.stopPropagation();rcCopyDeviceId('${d.id}')" title="Click to copy">${shortId}</span>
+                        <span>${lastPoll}</span>
+                    </div>
                 </div>
             `;
         }).join('');
     }
-    updateStatusPill(devices.length > 0);
+    updateStatusPill(devices.some(d => isDeviceOnline(d)));
+}
+
+function rcCopyDeviceId(id) {
+    if (!id) return;
+    try {
+        navigator.clipboard.writeText(id);
+        toast('Device ID copied', 'success', 1500);
+    } catch (e) {
+        toast('Copy failed', 'warn', 1500);
+    }
 }
 
 function isDeviceOnline(device) {
@@ -830,7 +1121,6 @@ function isDeviceOnline(device) {
     return (Date.now() - new Date(device.last_seen).getTime()) < 20000;
 }
 
-// ✅ v1.2.2: clear app drawer immediately on device switch
 function rcSelectDevice(id) {
     if (!id || id === currentDeviceId) return;
     currentDeviceId = id;
@@ -840,19 +1130,49 @@ function rcSelectDevice(id) {
     document.querySelectorAll('.device-card').forEach(el => {
         if (el.getAttribute('onclick')?.includes(id)) el.classList.add('active');
     });
-    lastScreenshotFilename = null;
-    currentDeviceScreen = null;
 
-    // Immediately clear stale UI so we never show previous device's data
+    // Restore per-device state
+    const ds = deviceState.get(id) || {};
+    currentDeviceScreen = ds.screenSize || null;
+
+    // Clear UI immediately
     const drawer = document.getElementById('appDrawer');
-    drawer.innerHTML = '<div style="grid-column: span 4; text-align: center; color: var(--text-secondary); font-size: 11px; padding: 12px;">Loading apps…</div>';
+    drawer.innerHTML = '<div class="app-empty">Loading apps…</div>';
+    document.getElementById('appSearch').value = '';
+    currentAppList = [];
+
     document.getElementById('rcFileList').innerHTML =
         '<div style="color:var(--text-secondary);font-size:10px;padding:8px;text-align:center;">Enter a path and press Enter</div>';
+    document.getElementById('rcBreadcrumb').innerHTML =
+        '<span style="color:var(--text-secondary);font-size:10px;">No path yet</span>';
 
     document.getElementById('screenLoading').classList.remove('hidden');
+    document.getElementById('screenImg').src = '';
+    updateStickyDevice(id);
+    updateActionButtons();
+
     rcLog('📱 Selected device: ' + id.substring(0, 12), 'success');
     rcRefreshScreen();
     rcLoadApps();
+    rcUpdateAgentInfo();
+}
+
+function updateStickyDevice(id) {
+    const el = document.getElementById('stickyDevice');
+    const text = document.getElementById('stickyDeviceText');
+    if (!id) { el.style.display = 'none'; return; }
+    const ds = deviceState.get(id) || {};
+    text.textContent = `${ds.name || id.substring(0, 8)} — ${ds.online ? 'online' : 'offline'}`;
+    el.classList.toggle('offline', !ds.online);
+    el.style.display = 'flex';
+}
+
+function updateActionButtons() {
+    const ds = deviceState.get(currentDeviceId) || {};
+    const online = ds.online;
+    document.querySelectorAll('.menu-item[id^="qmi-"]').forEach(el => {
+        el.classList.toggle('disabled', !online);
+    });
 }
 
 function updateStatusPill(connected) {
@@ -872,8 +1192,12 @@ async function rcRefreshScreen() {
         let s = null;
         if (Array.isArray(shots)) s = shots.find(x => x.device_id === currentDeviceId) || shots[0];
         if (!s) { document.getElementById('screenLoading').classList.remove('hidden'); return; }
-        if (s.filename === lastScreenshotFilename) return;
-        lastScreenshotFilename = s.filename;
+
+        const ds = deviceState.get(currentDeviceId) || {};
+        if (s.filename === ds.lastScreenshotFilename) return;
+        ds.lastScreenshotFilename = s.filename;
+        deviceState.set(currentDeviceId, ds);
+
         const img = document.getElementById('screenImg');
         const overlay = document.getElementById('screenOverlay');
         const loading = document.getElementById('screenLoading');
@@ -884,7 +1208,11 @@ async function rcRefreshScreen() {
             loading.classList.add('hidden');
             document.getElementById('screenInfoBar').style.display = 'flex';
             document.getElementById('screenInfo').textContent = s.filename;
-            if (s.width && s.height) currentDeviceScreen = { width: s.width, height: s.height };
+            if (s.width && s.height) {
+                currentDeviceScreen = { width: s.width, height: s.height };
+                ds.screenSize = currentDeviceScreen;
+                deviceState.set(currentDeviceId, ds);
+            }
             fpsCounter++;
             const now = Date.now();
             if (now - fpsTimestamp > 2000) {
@@ -921,6 +1249,8 @@ function rcSetRefreshInterval(ms) {
 function rcSetQuality(val) {
     const ms = parseInt(val);
     currentRefreshInterval = ms;
+    prefs.refreshInterval = ms;
+    savePrefs();
     rcLog('Quality: ' + (ms === 0 ? 'Manual' : (1000/ms).toFixed(1) + ' FPS'), 'info');
     if (autoRefreshEnabled) rcSetRefreshInterval(ms);
 }
@@ -928,6 +1258,17 @@ function rcForceScreenshot() {
     if (!currentDeviceId) return;
     rcKey('screenshot');
     setTimeout(rcRefreshScreen, 1500);
+}
+
+// Zoom
+function rcZoom(direction) {
+    if (direction === 0) currentZoom = 1.0;
+    else if (direction > 0) currentZoom = Math.min(currentZoom * 1.25, 4);
+    else currentZoom = Math.max(currentZoom / 1.25, 0.5);
+    const wrapper = document.getElementById('screenWrapper');
+    wrapper.style.transform = `scale(${currentZoom})`;
+    wrapper.style.transformOrigin = 'center center';
+    rcLog(`🔍 Zoom: ${(currentZoom * 100).toFixed(0)}%`, 'info');
 }
 
 // ============================================================
@@ -959,6 +1300,10 @@ function setupScreenInteraction() {
 
     overlay.addEventListener('mousedown', (e) => {
         e.preventDefault();
+        if (!isDeviceOnline(deviceState.get(currentDeviceId) || {})) {
+            toast('Device offline', 'warn', 1500);
+            return;
+        }
         if (e.button === 2) {
             const p = getNorm(e);
             showRipple(e.clientX, e.clientY, 'right');
@@ -1026,6 +1371,10 @@ function setupScreenInteraction() {
 
     overlay.addEventListener('wheel', (e) => {
         e.preventDefault();
+        if (e.ctrlKey) {
+            rcZoom(e.deltaY > 0 ? -1 : 1);
+            return;
+        }
         const p = getNorm(e);
         const amount = e.deltaY > 0 ? -3 : 3;
         rcScroll(p.x, p.y, amount);
@@ -1143,6 +1492,7 @@ async function rcClipboardGet() {
             await navigator.clipboard.writeText(String(r.data || ''));
             const preview = String(r.data || '').substring(0, 60);
             rcLog(`✅ Clipboard copied: "${preview}${preview.length === 60 ? '…' : ''}"`, 'success');
+            toast('Remote clipboard copied to your PC', 'success');
         } catch (e) {
             rcLog('⚠️ Device returned clipboard but browser refused to write: ' + e.message, 'warn');
             rcLog('📋 Remote clipboard content: ' + String(r.data || '').substring(0, 200), 'info');
@@ -1172,6 +1522,7 @@ async function rcPower(action) {
     };
     if (!confirm(`Really ${labels[action] || action} the remote device?`)) return;
     rcLog(`⚡ Sending power command: ${action}`, 'warn');
+    toast(`Sending ${action}...`, 'warn');
     await rcSendAndTrack('/api/control/power', { action }, `Power: ${action}`,
         { attempts: 10, silentSuccess: false });
 }
@@ -1182,6 +1533,7 @@ async function rcKillProcess() {
     if (!name) return;
     if (!/^[\w.\- ]+\.exe$/i.test(name) && !/^[\w.\- ]+$/i.test(name)) {
         rcLog('⚠️ Invalid process name', 'warn');
+        toast('Invalid process name', 'warn');
         return;
     }
     if (!confirm(`Kill process "${name}" on remote device?`)) return;
@@ -1193,9 +1545,12 @@ async function rcKillProcess() {
 // ============================================================
 // FILE BROWSER
 // ============================================================
+let currentPath = '';
+
 async function rcListDir() {
     if (!currentDeviceId) return;
     const path = document.getElementById('rcPathInput').value || '';
+    currentPath = path;
     const list = document.getElementById('rcFileList');
     list.innerHTML = '<div style="text-align:center;padding:12px;"><div class="spinner-ring" style="margin:0 auto;width:24px;height:24px;"></div></div>';
     const r = await rcSendAndTrack('/api/control/list-dir', { path }, `List: ${path || '~'}`,
@@ -1204,7 +1559,11 @@ async function rcListDir() {
         list.innerHTML = '<div style="color:var(--red);font-size:10px;padding:8px;text-align:center;">Failed to list directory</div>';
         return;
     }
-    const entries = r.data || [];
+    let entries = r.data || [];
+    if (!showHiddenFiles) {
+        entries = entries.filter(e => !e.name.startsWith('.'));
+    }
+    updateBreadcrumb(path);
     if (entries.length === 0) {
         list.innerHTML = '<div style="color:var(--text-secondary);font-size:10px;padding:8px;text-align:center;">Empty directory</div>';
         return;
@@ -1224,6 +1583,26 @@ async function rcListDir() {
     }).join('');
 }
 
+function updateBreadcrumb(path) {
+    const bc = document.getElementById('rcBreadcrumb');
+    if (!path) {
+        bc.innerHTML = '<span style="color:var(--text-secondary);font-size:10px;">No path yet</span>';
+        return;
+    }
+    // Split path into crumbs
+    const parts = path.replace(/\//g, '\\').split('\\').filter(p => p);
+    let accum = '';
+    const crumbs = parts.map((p, i) => {
+        accum = i === 0 ? p + '\\' : accum + (accum.endsWith('\\') ? '' : '\\') + p;
+        const isLast = i === parts.length - 1;
+        const cls = isLast ? 'crumb current' : 'crumb';
+        const safeAccum = accum.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `<span class="${cls}" onclick="rcQuickPath('${safeAccum}')">${escapeHtml(p)}</span>` +
+               (isLast ? '' : '<span class="sep">\\</span>');
+    }).join('');
+    bc.innerHTML = crumbs;
+}
+
 function rcNavTo(path, isDir) {
     if (!isDir) {
         rcLog('📄 File: ' + path, 'info');
@@ -1238,6 +1617,26 @@ function rcQuickPath(path) {
     rcListDir();
 }
 
+function rcFileUp() {
+    if (!currentPath) return;
+    const parts = currentPath.replace(/\//g, '\\').split('\\').filter(p => p);
+    if (parts.length <= 1) return;
+    parts.pop();
+    let newPath = parts.join('\\');
+    if (!newPath.includes(':')) newPath = newPath + '\\';
+    rcQuickPath(newPath);
+}
+
+function rcToggleHidden() {
+    showHiddenFiles = !showHiddenFiles;
+    prefs.hiddenFiles = showHiddenFiles;
+    savePrefs();
+    const btn = document.getElementById('rcHiddenToggle');
+    btn.classList.toggle('active', showHiddenFiles);
+    btn.querySelector('i').className = showHiddenFiles ? 'fas fa-eye' : 'fas fa-eye-slash';
+    if (currentPath) rcListDir();
+}
+
 function formatBytes(n) {
     if (!n) return '';
     if (n < 1024) return n + ' B';
@@ -1247,51 +1646,75 @@ function formatBytes(n) {
 }
 
 // ============================================================
-// APP DRAWER — v1.2.2 strict per-device
+// APP DRAWER
 // ============================================================
-async function rcLoadApps() {
-    if (!currentDeviceId) return;
+async function rcLoadApps(force = false) {
+    if (!currentDeviceId || appLoadInFlight) return;
+    if (force) currentAppList = [];
+    appLoadInFlight = true;
     const drawer = document.getElementById('appDrawer');
     const requestedDevice = currentDeviceId;
-    drawer.innerHTML = '<div style="grid-column: span 4; text-align: center; padding: 12px;"><div class="spinner-ring" style="margin: 0 auto; width: 24px; height: 24px;"></div></div>';
+    drawer.innerHTML = '<div class="app-empty"><div class="spinner-ring" style="margin: 0 auto; width: 24px; height: 24px;"></div></div>';
     try {
         const res = await api(`/api/apps/list?deviceId=${encodeURIComponent(requestedDevice)}`);
-        // Abort if user switched device while we were loading
         if (requestedDevice !== currentDeviceId) {
             rcLog('Device changed during app fetch — discarding', 'warn');
+            appLoadInFlight = false;
             return;
         }
         let apps = [];
         if (Array.isArray(res)) apps = res;
         else if (res && Array.isArray(res.apps)) apps = res.apps;
-
-        if (apps.length === 0) {
-            drawer.innerHTML = `<div style="grid-column: span 4; text-align: center; color: var(--text-secondary); font-size: 11px; padding: 12px;">
-                No apps reported yet.<br><span style="font-size:10px;">Waiting for the agent to send its app list…</span>
-            </div>`;
-            return;
+        currentAppList = apps;
+        renderApps();
+        if (apps.length > 0) {
+            rcLog(`✅ Loaded ${apps.length} apps for ${requestedDevice.substring(0, 8)}`, 'success');
         }
-        apps.sort((a, b) => (a.label || a.name || '').localeCompare(b.label || b.name || ''));
-        drawer.innerHTML = apps.map(a => {
-            const name = a.label || a.name || a.package || 'App';
-            const pkg  = a.package || a.name || '';
-            const shortName = name.length > 12 ? name.substring(0, 12) + '…' : name;
-            const icon = appIconFor(name);
-            const dataPkg = encodeURIComponent(pkg);
-            return `
-                <div class="app-item"
-                     data-pkg="${dataPkg}"
-                     onclick="rcLaunchApp(decodeURIComponent(this.dataset.pkg))"
-                     title="${escapeHtml(name)}">
-                    <div class="app-icon" style="background: ${icon.color}"><i class="${icon.icon}"></i></div>
-                    <div class="app-name">${escapeHtml(shortName)}</div>
-                </div>
-            `;
-        }).join('');
-        rcLog(`✅ Loaded ${apps.length} apps for ${requestedDevice.substring(0, 8)}`, 'success');
     } catch (e) {
         rcLog('App load error: ' + e.message, 'error');
+    } finally {
+        appLoadInFlight = false;
     }
+}
+
+function renderApps() {
+    const drawer = document.getElementById('appDrawer');
+    let apps = currentAppList;
+    const q = (document.getElementById('appSearch').value || '').toLowerCase().trim();
+    if (q) {
+        apps = apps.filter(a => {
+            const name = (a.label || a.name || '').toLowerCase();
+            const pkg = (a.package || '').toLowerCase();
+            return name.includes(q) || pkg.includes(q);
+        });
+    }
+    if (apps.length === 0) {
+        drawer.innerHTML = `<div class="app-empty">
+            ${currentAppList.length === 0 ? 'No apps reported yet. Waiting for the agent…' : 'No matching apps.'}
+        </div>`;
+        return;
+    }
+    apps.sort((a, b) => (a.label || a.name || '').localeCompare(b.label || b.name || ''));
+    drawer.innerHTML = apps.map(a => {
+        const name = a.label || a.name || a.package || 'App';
+        const pkg  = a.package || a.name || '';
+        const shortName = name.length > 12 ? name.substring(0, 12) + '…' : name;
+        const icon = appIconFor(name);
+        const dataPkg = encodeURIComponent(pkg);
+        return `
+            <div class="app-item"
+                 data-pkg="${dataPkg}"
+                 onclick="rcLaunchApp(decodeURIComponent(this.dataset.pkg))"
+                 title="${escapeHtml(name)}">
+                <div class="app-icon" style="background: ${icon.color}"><i class="${icon.icon}"></i></div>
+                <div class="app-name">${escapeHtml(shortName)}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+function rcFilterApps() {
+    renderApps();
 }
 
 function appIconFor(name) {
@@ -1331,6 +1754,7 @@ async function rcLaunchApp(packageName) {
     try {
         const short = packageName.split(/[\\/]/).pop() || packageName;
         rcLog(`🚀 Launching: ${short}`, 'info');
+        toast(`Launching ${short}...`, 'info', 2000);
         const r = await rcSendAndTrack('/api/control/launch', { package: packageName },
             `Launch ${short}`, { attempts: 30 });
         if (r && r.ok) {
@@ -1341,6 +1765,83 @@ async function rcLaunchApp(packageName) {
     } finally {
         setTimeout(() => { rcLaunchApp._inFlight = false; }, 2500);
     }
+}
+
+// ============================================================
+// AGENT INFO
+// ============================================================
+async function rcUpdateAgentInfo() {
+    const info = document.getElementById('agentInfo');
+    if (!currentDeviceId) {
+        info.innerHTML = '<div class="row"><span>Status:</span><span class="val">No device</span></div>';
+        return;
+    }
+    const data = await api('/api/debug/devices');
+    if (!data || !data.devices) return;
+    const d = data.devices[currentDeviceId];
+    if (!d) {
+        info.innerHTML = '<div class="row"><span>Status:</span><span class="val">Not found</span></div>';
+        return;
+    }
+    const lastPoll = d.last_poll_secs !== null && d.last_poll_secs !== undefined
+        ? `${d.last_poll_secs}s ago` : 'never';
+    info.innerHTML = `
+        <div class="row"><span>Status:</span><span class="val" style="color:${d.online ? '#3fb950' : '#f85149'}">${d.online ? 'online' : 'offline'}</span></div>
+        <div class="row"><span>PID:</span><span class="val">${d.agent_pid || '—'}</span></div>
+        <div class="row"><span>Version:</span><span class="val">${escapeHtml(d.agent_version || '—')}</span></div>
+        <div class="row"><span>Last poll:</span><span class="val">${lastPoll}</span></div>
+    `;
+    // Update device state
+    const ds = deviceState.get(currentDeviceId) || {};
+    ds.online = d.online;
+    ds.name = d.name;
+    deviceState.set(currentDeviceId, ds);
+    updateStickyDevice(currentDeviceId);
+    updateActionButtons();
+}
+
+// ============================================================
+// DIAGNOSTICS
+// ============================================================
+async function rcShowDiagnostics() {
+    const data = await api('/api/debug/devices');
+    if (!data) { toast('Failed to fetch diagnostics', 'error'); return; }
+    const lines = ['=== PACON Diagnostics ===', ''];
+    if (data.devices && Object.keys(data.devices).length === 0) {
+        lines.push('No devices registered.');
+    } else {
+        for (const [id, d] of Object.entries(data.devices || {})) {
+            lines.push(`Device: ${id}`);
+            lines.push(`  Name:     ${d.name || '?'}`);
+            lines.push(`  Model:    ${d.model || '?'}`);
+            lines.push(`  Status:   ${d.online ? 'ONLINE' : 'OFFLINE'} (${d.last_poll_secs}s ago)`);
+            lines.push(`  Agent:    pid=${d.agent_pid} v=${d.agent_version}`);
+            lines.push(`  Apps:     ${d.app_count}`);
+            lines.push('');
+        }
+    }
+    lines.push(`Server time: ${data.server_now}`);
+    lines.push(`Offline threshold: ${data.offline_threshold}s`);
+    lines.push(`Purge grace: ${data.offline_grace}s`);
+    alert(lines.join('\n'));
+}
+
+// ============================================================
+// SHORTCUTS HELP
+// ============================================================
+function rcShowShortcuts() {
+    alert([
+        '=== Keyboard Shortcuts ===',
+        '',
+        'Ctrl+Shift+S    Force screenshot',
+        'Ctrl+Shift+R    Refresh screen',
+        'Ctrl+Shift+T    Send latest screenshot (Telegram)',
+        'Ctrl+Shift+D    Show diagnostics',
+        'Ctrl+Scroll     Zoom in/out',
+        'Alt+Left        Back key',
+        'Alt+Home        Home key',
+        'Esc             Send Esc to remote'
+    ].join('\n'));
 }
 
 // ============================================================
@@ -1379,6 +1880,7 @@ async function tgSave() {
     const chatId   = document.getElementById('tgChatId').value.trim();
     if (!botToken || !chatId) {
         rcLog('⚠️ Both bot token and chat ID required', 'warn');
+        toast('Both bot token and chat ID required', 'warn');
         return;
     }
     const r = await api('/api/telegram/config', 'POST', {
@@ -1386,12 +1888,14 @@ async function tgSave() {
     });
     if (r && r.success) {
         rcLog('✅ Telegram config saved', 'success');
+        toast('Telegram config saved', 'success');
         tgLoad();
         await api('/api/telegram/send-text', 'POST', {
             text: '🛡️ <b>PACON Dashboard</b>\n\nYour Telegram integration is now active.'
         });
     } else {
         rcLog('❌ Failed to save Telegram config', 'error');
+        toast('Failed to save Telegram config', 'error');
     }
 }
 
@@ -1403,7 +1907,7 @@ async function tgSavePrefs() {
         notify_offline: notifyOffline,
     });
     if (r && r.success) {
-        rcLog(`✅ Prefs saved (online: ${notifyOnline ? 'ON' : 'OFF'}, offline: ${notifyOffline ? 'ON' : 'OFF'})`, 'success');
+        rcLog(`✅ Prefs saved`, 'success');
     } else {
         rcLog('❌ Failed to save prefs', 'error');
     }
@@ -1411,12 +1915,12 @@ async function tgSavePrefs() {
 
 async function tgTest() {
     const r = await api('/api/telegram/test', 'POST');
-    if (r && r.success) rcLog('✅ Test message sent to Telegram', 'success');
-    else rcLog('❌ Telegram test failed: ' + (r?.error || 'unknown'), 'error');
+    if (r && r.success) { rcLog('✅ Test message sent to Telegram', 'success'); toast('Telegram test sent', 'success'); }
+    else { rcLog('❌ Telegram test failed: ' + (r?.error || 'unknown'), 'error'); toast('Telegram test failed', 'error'); }
 }
 
 async function tgSendLatestScreenshot() {
-    if (!currentDeviceId) { rcLog('⚠️ Select a device first', 'warn'); return; }
+    if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
     const shots = await api('/api/screenshots?limit=10');
     if (!Array.isArray(shots) || shots.length === 0) {
         rcLog('⚠️ No screenshots available', 'warn');
@@ -1425,24 +1929,24 @@ async function tgSendLatestScreenshot() {
     const latest = shots[0];
     rcLog(`📤 Sending ${latest.filename}...`, 'info');
     const r = await api(`/api/telegram/send-screenshot/${encodeURIComponent(latest.filename)}?deviceId=${encodeURIComponent(currentDeviceId)}`, 'POST');
-    if (r && r.success) rcLog('✅ Screenshot sent', 'success');
-    else rcLog('❌ Send failed: ' + (r?.error || 'unknown'), 'error');
+    if (r && r.success) { rcLog('✅ Screenshot sent', 'success'); toast('Screenshot sent to Telegram', 'success'); }
+    else { rcLog('❌ Send failed: ' + (r?.error || 'unknown'), 'error'); toast('Send failed', 'error'); }
 }
 
 async function tgSendApps() {
-    if (!currentDeviceId) { rcLog('⚠️ Select a device first', 'warn'); return; }
+    if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
     rcLog('📤 Sending apps list...', 'info');
     const r = await api('/api/telegram/send-apps', 'POST', { deviceId: currentDeviceId });
-    if (r && r.success) rcLog('✅ Apps list sent', 'success');
-    else rcLog('❌ Send failed: ' + (r?.error || 'unknown'), 'error');
+    if (r && r.success) { rcLog('✅ Apps list sent', 'success'); toast('Apps list sent', 'success'); }
+    else { rcLog('❌ Send failed: ' + (r?.error || 'unknown'), 'error'); toast('Send failed', 'error'); }
 }
 
 async function tgSendCustomText() {
     const text = prompt('Message to send via Telegram:');
     if (!text) return;
     const r = await api('/api/telegram/send-text', 'POST', { text });
-    if (r && r.success) rcLog('✅ Message sent', 'success');
-    else rcLog('❌ Send failed', 'error');
+    if (r && r.success) { rcLog('✅ Message sent', 'success'); toast('Message sent', 'success'); }
+    else { rcLog('❌ Send failed', 'error'); toast('Send failed', 'error'); }
 }
 
 // ============================================================
@@ -1467,13 +1971,35 @@ function rcBootAfterAuth() {
     rcSetRefreshInterval(currentRefreshInterval);
     tgLoad();
 
-    // ✅ v1.2.2: live device status — shows "Offline Xs" when agent stops polling
+    // Restore stream quality from prefs
+    const qSelect = document.getElementById('streamQuality');
+    if (qSelect) qSelect.value = String(currentRefreshInterval);
+
+    // Hidden files toggle restore
+    if (showHiddenFiles) {
+        document.getElementById('rcHiddenToggle').classList.add('active');
+        document.getElementById('rcHiddenToggle').querySelector('i').className = 'fas fa-eye';
+    }
+
+    // Live device status ticker
     setInterval(async () => {
         if (!currentDeviceId) return;
         const data = await api('/api/devices');
         if (!data || !data.devices) return;
         const d = data.devices[currentDeviceId];
-        if (!d) return;
+        if (!d) {
+            // Device disappeared
+            const statusText = document.getElementById('statusText');
+            const pill = document.getElementById('statusPill');
+            pill.classList.add('offline');
+            statusText.textContent = 'Device gone';
+            const ds = deviceState.get(currentDeviceId) || {};
+            ds.online = false;
+            deviceState.set(currentDeviceId, ds);
+            updateStickyDevice(currentDeviceId);
+            updateActionButtons();
+            return;
+        }
         const lastSeenMs = d.last_seen
             ? (Date.now() - new Date(d.last_seen).getTime())
             : Infinity;
@@ -1487,23 +2013,48 @@ function rcBootAfterAuth() {
             pill.classList.remove('offline');
             statusText.textContent = 'Connected';
         }
+
+        const ds = deviceState.get(currentDeviceId) || {};
+        ds.online = !offline;
+        ds.name = d.name;
+        deviceState.set(currentDeviceId, ds);
+        updateStickyDevice(currentDeviceId);
+        updateActionButtons();
+
+        // Refresh agent info every ~10s
+        const now = Date.now();
+        if (now - lastStatusPoll > 10000) {
+            lastStatusPoll = now;
+            rcUpdateAgentInfo();
+        }
     }, 3000);
 
+    // Text input Enter handler
     document.getElementById('rcTextInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') rcSendText();
     });
 
+    // Path input Ctrl+L focus
+    document.getElementById('rcPathInput').addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'l') {
+            e.preventDefault();
+            document.getElementById('rcPathInput').select();
+        }
+    });
+
+    // Global keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-        if (e.ctrlKey && e.key === 's') { e.preventDefault(); rcForceScreenshot(); }
-        if (e.ctrlKey && e.key === 'r') { e.preventDefault(); rcRefreshScreen(); }
-        if (e.ctrlKey && e.key === 't') { e.preventDefault(); tgSendLatestScreenshot(); }
+        if (e.ctrlKey && e.shiftKey && e.key === 'S') { e.preventDefault(); rcForceScreenshot(); }
+        if (e.ctrlKey && e.shiftKey && e.key === 'R') { e.preventDefault(); rcRefreshScreen(); }
+        if (e.ctrlKey && e.shiftKey && e.key === 'T') { e.preventDefault(); tgSendLatestScreenshot(); }
+        if (e.ctrlKey && e.shiftKey && e.key === 'D') { e.preventDefault(); rcShowDiagnostics(); }
         if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); rcKey('back'); }
         if (e.altKey && e.key === 'Home') { e.preventDefault(); rcKey('home'); }
         if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('✅ UI v1.2.2 ready. Select a device to begin.', 'success');
+    rcLog('✅ UI v1.2.3 ready. Select a device to begin.', 'success');
 }
 </script>
 </body>
