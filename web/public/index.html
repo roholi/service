@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛡️ PACON Remote Control v1.2</title>
+<title>🛡️ PACON Remote Control v1.2.2</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -23,9 +23,6 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 
-/* ============================================================
-   PIN GATE
-   ============================================================ */
 #pinGate {
     position: fixed; inset: 0; z-index: 10000;
     background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
@@ -64,9 +61,6 @@ body {
 #pinError { color: var(--red); font-size: 12px; margin-top: 16px; min-height: 18px; }
 #pinHint { color: var(--text-secondary); font-size: 11px; margin-top: 20px; }
 
-/* ============================================================
-   HEADER
-   ============================================================ */
 .rc-header {
     height: 48px; background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
@@ -97,9 +91,6 @@ body {
 }
 .rc-header .header-btn:hover { background: var(--bg-panel); color: var(--text-primary); }
 
-/* ============================================================
-   LAYOUT
-   ============================================================ */
 .rc-body { display: flex; height: calc(100vh - 48px); overflow: hidden; }
 .rc-sidebar-left {
     width: 220px; background: var(--bg-secondary);
@@ -135,9 +126,6 @@ body {
 .device-card .device-badge.online { background: rgba(35, 134, 54, 0.2); color: #3fb950; }
 .device-card .device-badge.offline { background: rgba(218, 54, 51, 0.2); color: #f85149; }
 
-/* ============================================================
-   SCREEN
-   ============================================================ */
 .rc-screen-area {
     flex: 1; background: #000;
     display: flex; align-items: center; justify-content: center;
@@ -189,9 +177,6 @@ body {
 .touch-indicator.right { background: rgba(218, 54, 51, 0.4); border-color: var(--red); }
 .touch-indicator.double { background: rgba(137, 87, 229, 0.5); border-color: var(--purple); }
 
-/* ============================================================
-   RIGHT SIDEBAR
-   ============================================================ */
 .rc-sidebar-right {
     width: 320px; background: var(--bg-secondary);
     border-left: 1px solid var(--border); padding: 12px;
@@ -270,9 +255,6 @@ body {
 .file-item i { width: 14px; text-align: center; }
 .file-item .size { margin-left: auto; color: var(--text-secondary); font-size: 9px; }
 
-/* ============================================================
-   LOG
-   ============================================================ */
 .rc-log {
     position: fixed; bottom: 0; left: 220px; right: 320px;
     background: rgba(13, 17, 23, 0.95);
@@ -308,9 +290,6 @@ body {
 </head>
 <body>
 
-<!-- ============================================================
-     PIN GATE
-     ============================================================ -->
 <div id="pinGate" class="hidden">
     <div class="pin-card">
         <div class="pin-icon"><i class="fas fa-shield-alt"></i></div>
@@ -330,13 +309,10 @@ body {
     </div>
 </div>
 
-<!-- ============================================================
-     HEADER
-     ============================================================ -->
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
-        <span>PACON Remote Control v1.2</span>
+        <span>PACON Remote Control v1.2.2</span>
     </div>
     <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
         <option value="">-- Select Device --</option>
@@ -353,12 +329,8 @@ body {
     </div>
 </div>
 
-<!-- ============================================================
-     BODY
-     ============================================================ -->
 <div class="rc-body">
 
-    <!-- LEFT SIDEBAR -->
     <div class="rc-sidebar-left">
         <div>
             <div class="sidebar-section-title">Devices</div>
@@ -381,7 +353,6 @@ body {
         </div>
     </div>
 
-    <!-- SCREEN -->
     <div class="rc-screen-area">
         <div class="rc-screen-wrapper" id="screenWrapper">
             <img id="screenImg" alt="Device screen" />
@@ -397,10 +368,8 @@ body {
         </div>
     </div>
 
-    <!-- RIGHT SIDEBAR -->
     <div class="rc-sidebar-right">
 
-        <!-- NAVIGATION -->
         <div class="control-panel">
             <h6><i class="fas fa-gamepad"></i> Navigation</h6>
             <div class="btn-grid">
@@ -413,32 +382,30 @@ body {
             </div>
         </div>
 
-        <!-- KEYBOARD SHORTCUTS -->
         <div class="control-panel">
             <h6><i class="fas fa-keyboard"></i> Keyboard Shortcuts</h6>
             <div class="btn-grid triple">
-                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+c')" title="Copy">Ctrl+C</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+v')" title="Paste">Ctrl+V</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+x')" title="Cut">Ctrl+X</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+z')" title="Undo">Ctrl+Z</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+a')" title="Select all">Ctrl+A</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+s')" title="Save">Ctrl+S</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('alt+tab')" title="Switch app">Alt+Tab</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('alt+f4')" title="Close window">Alt+F4</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('esc')" title="Escape">Esc</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('tab')" title="Tab">Tab</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('enter')" title="Enter">Enter</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+shift+esc')" title="Task Manager">Task Mgr</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+c')">Ctrl+C</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+v')">Ctrl+V</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+x')">Ctrl+X</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+z')">Ctrl+Z</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+a')">Ctrl+A</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+s')">Ctrl+S</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('alt+tab')">Alt+Tab</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('alt+f4')">Alt+F4</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('esc')">Esc</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('tab')">Tab</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('enter')">Enter</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('ctrl+shift+esc')">Task Mgr</button>
             </div>
             <div class="btn-grid" style="margin-top:6px;">
-                <button class="btn-ctrl key" onclick="rcHotkey('win+d')" title="Show desktop">Win+D</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('win+e')" title="File Explorer">Win+E</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('win+r')" title="Run dialog">Win+R</button>
-                <button class="btn-ctrl key" onclick="rcHotkey('win+l')" title="Lock">Win+L</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('win+d')">Win+D</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('win+e')">Win+E</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('win+r')">Win+R</button>
+                <button class="btn-ctrl key" onclick="rcHotkey('win+l')">Win+L</button>
             </div>
         </div>
 
-        <!-- TEXT INPUT -->
         <div class="control-panel">
             <h6><i class="fas fa-font"></i> Text Input</h6>
             <div class="text-input-group">
@@ -456,7 +423,6 @@ body {
             </div>
         </div>
 
-        <!-- GODMODE -->
         <div class="control-panel">
             <h6><i class="fas fa-bolt"></i> Godmode</h6>
             <div class="btn-grid">
@@ -473,7 +439,6 @@ body {
             </div>
         </div>
 
-        <!-- FILE BROWSER -->
         <div class="control-panel">
             <h6><i class="fas fa-folder-open"></i> File Browser</h6>
             <div class="text-input-group">
@@ -498,7 +463,6 @@ body {
             </div>
         </div>
 
-        <!-- APPS -->
         <div class="control-panel">
             <h6>
                 <i class="fas fa-th"></i> Apps
@@ -513,7 +477,6 @@ body {
             </div>
         </div>
 
-        <!-- TELEGRAM -->
         <div class="control-panel">
             <h6>
                 <i class="fab fa-telegram"></i> Telegram
@@ -554,7 +517,6 @@ body {
             </div>
         </div>
 
-        <!-- STREAM QUALITY -->
         <div class="control-panel">
             <h6><i class="fas fa-tachometer-alt"></i> Stream Quality</h6>
             <select class="form-select form-select-sm" id="streamQuality" style="background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border); font-size: 11px;" onchange="rcSetQuality(this.value)">
@@ -568,9 +530,8 @@ body {
     </div>
 </div>
 
-<!-- LOG -->
 <div class="rc-log" id="rcLog">
-    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2 initialized</div>
+    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.2 initialized</div>
 </div>
 <button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
     <i class="fas fa-chevron-down"></i>
@@ -597,7 +558,6 @@ let SESSION_TOKEN         = '';
 let clickCount            = 0;
 let lastClickTime         = 0;
 
-// Pending commands waiting for result polling
 const pendingCommands = new Map();
 
 // ============================================================
@@ -755,8 +715,13 @@ async function api(endpoint, method = 'GET', data = null) {
             pinClear();
             return null;
         }
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return await res.json();
+        // Let callers see the JSON even on 4xx
+        try {
+            return await res.json();
+        } catch (e) {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return null;
+        }
     } catch (e) {
         rcLog('API error: ' + e.message, 'error');
         return null;
@@ -766,24 +731,25 @@ async function api(endpoint, method = 'GET', data = null) {
 // ============================================================
 // COMMAND SEND + RESULT TRACKING
 // ============================================================
-/**
- * Send a control command and poll for its result.
- * Returns the final result object {ok, error, data} or null on timeout.
- */
 async function rcSendAndTrack(endpoint, body, label, options = {}) {
     if (!currentDeviceId) {
         rcLog('⚠️ No device selected', 'warn');
         return null;
     }
     const r = await api(endpoint, 'POST', { deviceId: currentDeviceId, ...body });
+
+    // Fast-fail: server refused because device is offline
+    if (r && r.success === false && r.offline) {
+        rcLog(`❌ ${label} — ${r.error}`, 'error');
+        return null;
+    }
     if (!r || !r.success || !r.id) {
-        rcLog(`❌ ${label} — failed to queue`, 'error');
+        rcLog(`❌ ${label} — failed to queue${r && r.error ? ': ' + r.error : ''}`, 'error');
         return null;
     }
     rcLog(`⏳ ${label} queued (${r.id.substring(0, 8)})`, 'info');
     pendingCommands.set(r.id, { label, sentAt: Date.now() });
 
-    // Poll for result unless suppressed
     if (options.silent) return r;
     return await pollCommandResult(r.id, options.attempts || 25, options.silentSuccess);
 }
@@ -805,7 +771,9 @@ async function pollCommandResult(cmdId, attempts = 25, silentSuccess = false) {
         }
     }
     pendingCommands.delete(cmdId);
-    rcLog(`⚠️ Command ${cmdId.substring(0, 8)} timed out`, 'warn');
+    const elapsed = (attempts * interval / 1000).toFixed(0);
+    rcLog(`⚠️ Command ${cmdId.substring(0, 8)} timed out after ${elapsed}s`, 'warn');
+    rcLog(`   → Is the agent running on the child PC? Check /api/debug/devices`, 'info');
     return null;
 }
 
@@ -862,6 +830,7 @@ function isDeviceOnline(device) {
     return (Date.now() - new Date(device.last_seen).getTime()) < 20000;
 }
 
+// ✅ v1.2.2: clear app drawer immediately on device switch
 function rcSelectDevice(id) {
     if (!id || id === currentDeviceId) return;
     currentDeviceId = id;
@@ -873,6 +842,13 @@ function rcSelectDevice(id) {
     });
     lastScreenshotFilename = null;
     currentDeviceScreen = null;
+
+    // Immediately clear stale UI so we never show previous device's data
+    const drawer = document.getElementById('appDrawer');
+    drawer.innerHTML = '<div style="grid-column: span 4; text-align: center; color: var(--text-secondary); font-size: 11px; padding: 12px;">Loading apps…</div>';
+    document.getElementById('rcFileList').innerHTML =
+        '<div style="color:var(--text-secondary);font-size:10px;padding:8px;text-align:center;">Enter a path and press Enter</div>';
+
     document.getElementById('screenLoading').classList.remove('hidden');
     rcLog('📱 Selected device: ' + id.substring(0, 12), 'success');
     rcRefreshScreen();
@@ -955,7 +931,7 @@ function rcForceScreenshot() {
 }
 
 // ============================================================
-// SCREEN INTERACTION — tap / right-click / double-click / drag / scroll
+// SCREEN INTERACTION
 // ============================================================
 function setupScreenInteraction() {
     const overlay = document.getElementById('screenOverlay');
@@ -1271,22 +1247,28 @@ function formatBytes(n) {
 }
 
 // ============================================================
-// APP DRAWER
+// APP DRAWER — v1.2.2 strict per-device
 // ============================================================
 async function rcLoadApps() {
     if (!currentDeviceId) return;
     const drawer = document.getElementById('appDrawer');
+    const requestedDevice = currentDeviceId;
     drawer.innerHTML = '<div style="grid-column: span 4; text-align: center; padding: 12px;"><div class="spinner-ring" style="margin: 0 auto; width: 24px; height: 24px;"></div></div>';
     try {
-        let res = await api(`/api/apps/list?deviceId=${encodeURIComponent(currentDeviceId)}`);
-        if (!res || (Array.isArray(res) && res.length === 0)) {
-            res = await api(`/api/apps?deviceId=${encodeURIComponent(currentDeviceId)}&limit=1`);
+        const res = await api(`/api/apps/list?deviceId=${encodeURIComponent(requestedDevice)}`);
+        // Abort if user switched device while we were loading
+        if (requestedDevice !== currentDeviceId) {
+            rcLog('Device changed during app fetch — discarding', 'warn');
+            return;
         }
         let apps = [];
         if (Array.isArray(res)) apps = res;
         else if (res && Array.isArray(res.apps)) apps = res.apps;
+
         if (apps.length === 0) {
-            drawer.innerHTML = '<div style="grid-column: span 4; text-align: center; color: var(--text-secondary); font-size: 11px; padding: 12px;">No apps reported yet.</div>';
+            drawer.innerHTML = `<div style="grid-column: span 4; text-align: center; color: var(--text-secondary); font-size: 11px; padding: 12px;">
+                No apps reported yet.<br><span style="font-size:10px;">Waiting for the agent to send its app list…</span>
+            </div>`;
             return;
         }
         apps.sort((a, b) => (a.label || a.name || '').localeCompare(b.label || b.name || ''));
@@ -1295,7 +1277,6 @@ async function rcLoadApps() {
             const pkg  = a.package || a.name || '';
             const shortName = name.length > 12 ? name.substring(0, 12) + '…' : name;
             const icon = appIconFor(name);
-            // Build a data attribute so we never have to escape quotes into JS strings
             const dataPkg = encodeURIComponent(pkg);
             return `
                 <div class="app-item"
@@ -1307,7 +1288,7 @@ async function rcLoadApps() {
                 </div>
             `;
         }).join('');
-        rcLog(`✅ Loaded ${apps.length} apps`, 'success');
+        rcLog(`✅ Loaded ${apps.length} apps for ${requestedDevice.substring(0, 8)}`, 'success');
     } catch (e) {
         rcLog('App load error: ' + e.message, 'error');
     }
@@ -1486,6 +1467,28 @@ function rcBootAfterAuth() {
     rcSetRefreshInterval(currentRefreshInterval);
     tgLoad();
 
+    // ✅ v1.2.2: live device status — shows "Offline Xs" when agent stops polling
+    setInterval(async () => {
+        if (!currentDeviceId) return;
+        const data = await api('/api/devices');
+        if (!data || !data.devices) return;
+        const d = data.devices[currentDeviceId];
+        if (!d) return;
+        const lastSeenMs = d.last_seen
+            ? (Date.now() - new Date(d.last_seen).getTime())
+            : Infinity;
+        const offline = lastSeenMs > 20000;
+        const statusText = document.getElementById('statusText');
+        const pill = document.getElementById('statusPill');
+        if (offline) {
+            pill.classList.add('offline');
+            statusText.textContent = `Offline ${Math.floor(lastSeenMs / 1000)}s`;
+        } else {
+            pill.classList.remove('offline');
+            statusText.textContent = 'Connected';
+        }
+    }, 3000);
+
     document.getElementById('rcTextInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') rcSendText();
     });
@@ -1500,7 +1503,7 @@ function rcBootAfterAuth() {
         if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('✅ UI v1.2 ready. Select a device to begin.', 'success');
+    rcLog('✅ UI v1.2.2 ready. Select a device to begin.', 'success');
 }
 </script>
 </body>

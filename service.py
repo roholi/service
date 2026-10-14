@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PACON Service - v1.2
-+ Session bridge support (agent can spawn GUI apps in user session)
-+ Command result tracking (parent UI can poll for outcomes)
+PACON Service - v1.2.2
++ Session bridge support (agent spawns GUI apps in user session)
++ Command result tracking with fast-fail on offline devices
++ Strict per-device data isolation (no more cross-device leaks)
++ Auto-purge of stale device data on disconnect
 + Godmode endpoints: clipboard, power, file browser, process kill
 + Online/Offline Telegram notifications via watchdog
++ Diagnostics endpoint: /api/debug/devices
 """
 
 import os
@@ -130,6 +133,10 @@ ping_thread  = None
 ping_running = False
 ping_interval = 240
 
+# Offline detection threshold
+OFFLINE_THRESHOLD = 15       # seconds without poll = offline
+OFFLINE_GRACE     = 30       # seconds to wait before purging cache
+
 # ============================================================
 # UTILITY
 # ============================================================
@@ -237,7 +244,7 @@ def require_agent_auth(f):
 rate_buckets = defaultdict(list)
 RATE_LIMITS = {
     'default':    (240, 60),
-    'control':    (600, 60),   # bumped for command result polling
+    'control':    (600, 60),
     'screenshot': (300, 60),
     'login':      (10, 300),
     'telegram':   (30, 60),
@@ -276,7 +283,7 @@ def ping_server():
     while ping_running:
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.2')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.2.2')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug(f"✅ Self-ping OK")
@@ -429,7 +436,7 @@ def _telegram_send_document(filepath: Path, caption: str = "") -> dict:
     return _telegram_upload("sendDocument", "document", filepath, caption)
 
 # ============================================================
-# ONLINE / OFFLINE NOTIFICATIONS
+# ONLINE / OFFLINE STATE
 # ============================================================
 def _notify_state_change(device_id: str, is_online: bool):
     info  = devices.get(device_id, {})
@@ -456,18 +463,62 @@ def _mark_device_online(device_id: str):
     if was_online is False:
         _notify_state_change(device_id, True)
 
+def _purge_device_data(device_id: str):
+    """
+    Remove per-device cached data after it goes offline.
+    Keeps the `devices` entry (so UI history is preserved) but clears
+    apps, screenshots, queued commands, and screen info.
+    """
+    try:
+        removed_apps = len(installed_apps.pop(device_id, []))
+        device_screens.pop(device_id, None)
+        command_queues.pop(device_id, None)
+
+        global screenshots
+        before = len(screenshots)
+        screenshots = [s for s in screenshots if s.get('device_id') != device_id]
+        removed_shots = before - len(screenshots)
+
+        if device_id in devices:
+            devices[device_id]['status']    = 'offline'
+            devices[device_id]['last_seen'] = datetime.now().isoformat()
+
+        # Remove command results belonging to that device
+        stale_cids = [cid for cid, r in command_results.items()
+                      if r.get('deviceId') == device_id]
+        for cid in stale_cids:
+            command_results.pop(cid, None)
+
+        logger.info(f"🧹 Purged {device_id[:8]}: "
+                    f"{removed_apps} apps, {removed_shots} screenshots, "
+                    f"{len(stale_cids)} results")
+        add_activity('purge', f'Purged cached data for {device_id[:8]}', device_id)
+    except Exception as e:
+        logger.warning(f"Purge error for {device_id[:8]}: {e}")
+
 def _device_watchdog():
     while True:
         try:
             time.sleep(10)
             now = time.time()
             for device_id in list(device_online_state.keys()):
-                last_poll = control_devices.get(device_id, 0)
-                is_online = (now - last_poll) < 15
+                last_poll  = control_devices.get(device_id, 0)
+                is_online  = (now - last_poll) < OFFLINE_THRESHOLD
                 was_online = device_online_state.get(device_id)
+
                 if was_online and not is_online:
                     device_online_state[device_id] = False
                     _notify_state_change(device_id, False)
+
+                    # Schedule purge after grace period
+                    def _delayed_purge(did, delay=OFFLINE_GRACE):
+                        time.sleep(delay)
+                        # Only purge if still offline
+                        last = control_devices.get(did, 0)
+                        if (time.time() - last) >= OFFLINE_THRESHOLD:
+                            _purge_device_data(did)
+                    threading.Thread(target=_delayed_purge,
+                                     args=(device_id,), daemon=True).start()
         except Exception as e:
             logger.debug(f"Watchdog error: {e}")
 
@@ -563,7 +614,7 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.2</h1><p>index.html not found in web/public/</p></body></html>'''
+    <h1>🛡️ PACON v1.2.2</h1><p>index.html not found in web/public/</p></body></html>'''
 
 # ============================================================
 # HEALTH
@@ -571,12 +622,13 @@ def get_fallback_html():
 @app.route('/api/health', methods=['GET'])
 def health_check():
     now = time.time()
-    online_agents = sum(1 for ts in control_devices.values() if now - ts < 10)
+    online_agents = sum(1 for ts in control_devices.values()
+                        if now - ts < OFFLINE_THRESHOLD)
     return jsonify({
         "success":          True,
         "service":          "PACON API",
         "status":           "running",
-        "version":          "1.2.0",
+        "version":          "1.2.2",
         "platform":         platform.system(),
         "devices":          len(devices),
         "online_agents":    online_agents,
@@ -585,6 +637,37 @@ def health_check():
         "telegram_enabled": telegram_config.get("enabled", False),
         "self_ping":        ping_running,
         "timestamp":        datetime.now().isoformat(),
+    })
+
+# ============================================================
+# DIAGNOSTICS
+# ============================================================
+@app.route('/api/debug/devices', methods=['GET'])
+@require_parent_auth
+def debug_devices():
+    """Diagnostic dump — shows what the server knows about each device."""
+    now = time.time()
+    out = {}
+    for did, info in devices.items():
+        last_poll = control_devices.get(did, 0)
+        out[did] = {
+            'name':            info.get('name'),
+            'model':           info.get('model'),
+            'last_seen':       info.get('last_seen'),
+            'status':          info.get('status', 'unknown'),
+            'last_poll_secs':  int(now - last_poll) if last_poll else None,
+            'online':          (now - last_poll) < OFFLINE_THRESHOLD,
+            'has_apps':        did in installed_apps,
+            'app_count':       len(installed_apps.get(did, [])),
+            'has_screen_info': did in device_screens,
+            'queued_cmds':     len(command_queues.get(did, [])),
+        }
+    return jsonify({
+        'success':    True,
+        'devices':    out,
+        'server_now': datetime.now().isoformat(),
+        'offline_threshold': OFFLINE_THRESHOLD,
+        'offline_grace':     OFFLINE_GRACE,
     })
 
 # ============================================================
@@ -604,7 +687,10 @@ def get_status():
             'device_count': len(devices),
         }
     now = time.time()
-    online_states = {d: (now - ts < 10) for d, ts in control_devices.items()}
+    online_states = {
+        d: (now - ts < OFFLINE_THRESHOLD)
+        for d, ts in control_devices.items()
+    }
     return jsonify({
         "success":        True,
         "is_running":     True,
@@ -632,7 +718,7 @@ def get_devices():
     enriched = {}
     for did, info in devices.items():
         d = dict(info)
-        d['online'] = (now - control_devices.get(did, 0)) < 10
+        d['online'] = (now - control_devices.get(did, 0)) < OFFLINE_THRESHOLD
         enriched[did] = d
     return jsonify({"success": True, "devices": enriched})
 
@@ -643,6 +729,7 @@ def get_devices():
 @require_parent_auth
 def list_screenshots():
     limit = request.args.get('limit', 50, type=int)
+    device_id = request.args.get('deviceId', '')
     all_shots = []
     for directory in [SCREENSHOT_DIR, UPLOAD_DIR]:
         for pattern in ('*.png', '*.jpg'):
@@ -738,27 +825,41 @@ def get_activity():
         "count":      len(activities),
     })
 
+# ============================================================
+# ✅ STRICT PER-DEVICE APP ENDPOINTS (v1.2.2 fix)
+# ============================================================
 @app.route('/api/apps', methods=['GET'])
 @require_parent_auth
 def get_apps():
+    """
+    Return apps for a SPECIFIC device only.
+    Never falls back to another device.
+    """
     device_id = request.args.get('deviceId', '')
     limit     = request.args.get('limit', 50, type=int)
-    if device_id and device_id in installed_apps:
-        return jsonify(installed_apps[device_id])
-    if installed_apps:
-        for apps in installed_apps.values():
-            return jsonify(apps)
-    return jsonify(app_usage[-limit:])
+
+    # If no deviceId: aggregate apps from currently-online devices only
+    if not device_id:
+        now = time.time()
+        result = []
+        for did, apps in installed_apps.items():
+            if (now - control_devices.get(did, 0)) < OFFLINE_THRESHOLD:
+                result.extend(apps)
+        return jsonify(result[:limit])
+
+    # Strict: only return the requested device's apps
+    return jsonify(installed_apps.get(device_id, [])[:limit])
 
 @app.route('/api/apps/list', methods=['GET'])
 @require_parent_auth
 def apps_list():
+    """
+    Strict version — NEVER falls back to another device.
+    """
     device_id = request.args.get('deviceId', '')
-    if device_id and device_id in installed_apps:
-        return jsonify(installed_apps[device_id])
-    for did, apps in installed_apps.items():
-        return jsonify(apps)
-    return jsonify([])
+    if not device_id:
+        return jsonify([])
+    return jsonify(installed_apps.get(device_id, []))
 
 @app.route('/api/apps/search', methods=['GET'])
 @require_parent_auth
@@ -767,11 +868,7 @@ def apps_search():
     device_id = request.args.get('deviceId', '')
     if not q:
         return jsonify([])
-    source = installed_apps.get(device_id, [])
-    if not source:
-        for apps in installed_apps.values():
-            source = apps
-            break
+    source = installed_apps.get(device_id, []) if device_id else []
     results = [a for a in source
                if q in a.get('label', '').lower()
                or q in a.get('package', '').lower()
@@ -787,6 +884,17 @@ def get_locations():
 @app.route('/api/user', methods=['GET'])
 @require_parent_auth
 def get_user():
+    device_id = request.args.get('deviceId', '')
+    if device_id and device_id in devices:
+        info = devices[device_id]
+        return jsonify({
+            "success":       True,
+            "full_name":     info.get('name', 'User'),
+            "email":         info.get('email', ''),
+            "company":       info.get('company', ''),
+            "computer_name": info.get('model', 'Unknown'),
+            "device_id":     device_id,
+        })
     for device_id, info in devices.items():
         return jsonify({
             "success":       True,
@@ -1035,20 +1143,45 @@ def monitor_screen_info():
         return jsonify({"success": False, "error": str(e)}), 500
 
 # ============================================================
-# REMOTE CONTROL
+# REMOTE CONTROL — with fast-fail + shorter TTL
 # ============================================================
-def _enqueue(device_id: str, action: str, params: dict = None, ttl: float = 30.0) -> str:
+class DeviceOfflineError(Exception):
+    """Raised when we try to queue a command for an offline device."""
+    pass
+
+def _enqueue(device_id: str, action: str, params: dict = None, ttl: float = 12.0) -> str:
+    """
+    Queue a command for a device.
+    Fast-fails if the device hasn't polled recently.
+    """
+    now = time.time()
+    last_poll = control_devices.get(device_id, 0)
+    age = now - last_poll
+    if age > OFFLINE_THRESHOLD:
+        raise DeviceOfflineError(
+            f"device {device_id[:8]} offline for {int(age)}s"
+        )
+
     cmd_id = str(uuid.uuid4())
     item = {
         'id':      cmd_id,
         'action':  action,
         'params':  params or {},
-        'created': time.time(),
+        'created': now,
         'ttl':     ttl,
     }
     command_queues[device_id].append(item)
     logger.info(f"🎮 Queued '{action}' for {device_id[:8]} (id={cmd_id[:8]})")
     return cmd_id
+
+def _enqueue_response(device_id, action, params=None, ttl=12.0):
+    """Helper that returns (payload, status_code) with proper error handling."""
+    try:
+        cid = _enqueue(device_id, action, params, ttl)
+        return {'success': True, 'id': cid}, 200
+    except DeviceOfflineError as e:
+        logger.warning(f"❌ Refused command '{action}': {e}")
+        return {'success': False, 'error': str(e), 'offline': True}, 503
 
 @app.route('/api/control/poll', methods=['GET', 'OPTIONS'])
 @require_agent_auth
@@ -1086,51 +1219,57 @@ def control_result():
                      data.get('deviceId', 'unknown'))
     return jsonify({'success': True})
 
+# ---- Input commands ----
 @app.route('/api/control/tap', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_tap():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'tap',
-                   {'x': d.get('x', 0), 'y': d.get('y', 0)})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'tap',
+        {'x': d.get('x', 0), 'y': d.get('y', 0)})
+    return jsonify(payload), code
 
 @app.route('/api/control/longpress', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_longpress():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'longpress',
-                   {'x': d.get('x', 0), 'y': d.get('y', 0)})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'longpress',
+        {'x': d.get('x', 0), 'y': d.get('y', 0)})
+    return jsonify(payload), code
 
 @app.route('/api/control/swipe', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_swipe():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'swipe', {
-        'x1': d.get('x1', 0), 'y1': d.get('y1', 0),
-        'x2': d.get('x2', 0), 'y2': d.get('y2', 0),
-        'duration': d.get('duration', 300),
-    })
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'swipe', {
+            'x1': d.get('x1', 0), 'y1': d.get('y1', 0),
+            'x2': d.get('x2', 0), 'y2': d.get('y2', 0),
+            'duration': d.get('duration', 300),
+        })
+    return jsonify(payload), code
 
 @app.route('/api/control/text', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_text():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'text', {'text': d.get('text', '')})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'text', {'text': d.get('text', '')})
+    return jsonify(payload), code
 
 @app.route('/api/control/backspace', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_backspace():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'backspace', {})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'backspace', {})
+    return jsonify(payload), code
 
 @app.route('/api/control/key', methods=['POST'])
 @require_parent_auth
@@ -1141,37 +1280,40 @@ def control_key():
     valid = ('home', 'back', 'recents', 'notifications', 'lock', 'wake', 'screenshot')
     if key not in valid:
         return jsonify({'success': False, 'error': 'unknown key'}), 400
-    cid = _enqueue(d.get('deviceId', 'unknown'), key, {})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(d.get('deviceId', 'unknown'), key, {})
+    return jsonify(payload), code
 
 @app.route('/api/control/rightclick', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_rightclick():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'rightclick',
-                   {'x': d.get('x', 0), 'y': d.get('y', 0)})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'rightclick',
+        {'x': d.get('x', 0), 'y': d.get('y', 0)})
+    return jsonify(payload), code
 
 @app.route('/api/control/doubleclick', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_doubleclick():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'doubleclick',
-                   {'x': d.get('x', 0), 'y': d.get('y', 0)})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'doubleclick',
+        {'x': d.get('x', 0), 'y': d.get('y', 0)})
+    return jsonify(payload), code
 
 @app.route('/api/control/scroll', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_scroll():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'scroll', {
-        'x': d.get('x', 0), 'y': d.get('y', 0),
-        'amount': d.get('amount', 0),
-    })
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'scroll', {
+            'x': d.get('x', 0), 'y': d.get('y', 0),
+            'amount': d.get('amount', 0),
+        })
+    return jsonify(payload), code
 
 @app.route('/api/control/hotkey', methods=['POST'])
 @require_parent_auth
@@ -1181,8 +1323,9 @@ def control_hotkey():
     keys = d.get('keys', '')
     if not keys:
         return jsonify({'success': False, 'error': 'keys required'}), 400
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'hotkey', {'keys': keys})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'hotkey', {'keys': keys})
+    return jsonify(payload), code
 
 @app.route('/api/control/launch', methods=['POST'])
 @require_parent_auth
@@ -1193,9 +1336,10 @@ def control_launch():
     package   = d.get('package', '')
     if not package:
         return jsonify({'success': False, 'error': 'package required'}), 400
-    cid = _enqueue(device_id, 'launch', {'package': package})
-    add_activity('launch', f'Launch: {package[:60]}', device_id)
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(device_id, 'launch', {'package': package})
+    if code == 200:
+        add_activity('launch', f'Launch: {package[:60]}', device_id)
+    return jsonify(payload), code
 
 @app.route('/api/control/launch-history', methods=['GET'])
 @require_parent_auth
@@ -1242,7 +1386,7 @@ def control_status_batch():
 @require_parent_auth
 def control_devices_list():
     now = time.time()
-    online = {k: (now - v < 10) for k, v in control_devices.items()}
+    online = {k: (now - v < OFFLINE_THRESHOLD) for k, v in control_devices.items()}
     return jsonify({'success': True, 'devices': online})
 
 # ============================================================
@@ -1253,44 +1397,49 @@ def control_devices_list():
 @rate_limit('control')
 def control_clipboard_get():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'clipboard_get', {})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'clipboard_get', {}, ttl=20.0)
+    return jsonify(payload), code
 
 @app.route('/api/control/clipboard-set', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_clipboard_set():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'clipboard_set',
-                   {'text': d.get('text', '')})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'clipboard_set',
+        {'text': d.get('text', '')}, ttl=20.0)
+    return jsonify(payload), code
 
 @app.route('/api/control/power', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_power():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'power',
-                   {'action': d.get('action', '')})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'power',
+        {'action': d.get('action', '')}, ttl=15.0)
+    return jsonify(payload), code
 
 @app.route('/api/control/list-dir', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_list_dir():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'list_dir',
-                   {'path': d.get('path', '')})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'list_dir',
+        {'path': d.get('path', '')}, ttl=20.0)
+    return jsonify(payload), code
 
 @app.route('/api/control/kill', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_kill():
     d = request.json or {}
-    cid = _enqueue(d.get('deviceId', 'unknown'), 'kill',
-                   {'name': d.get('name', '')})
-    return jsonify({'success': True, 'id': cid})
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'kill',
+        {'name': d.get('name', '')}, ttl=15.0)
+    return jsonify(payload), code
 
 # ============================================================
 # TELEGRAM ENDPOINTS
@@ -1393,8 +1542,8 @@ def telegram_send_file(filename):
 def telegram_send_apps():
     data = request.json or {}
     device_id = data.get('deviceId', '')
-    apps = installed_apps.get(device_id, [])
-    if not apps:
+    apps = installed_apps.get(device_id, []) if device_id else []
+    if not apps and not device_id:
         for a in installed_apps.values():
             apps = a
             break
@@ -1442,13 +1591,14 @@ def handle_exception(e):
 # ============================================================
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.2 - GODMODE + SESSION BRIDGE + WATCHDOG")
+    print("  PACON SERVICE v1.2.2 - GODMODE STRICT + FAST-FAIL")
     print("=" * 70)
     logger.info(f"Web dir: {WEB_DIR}")
     logger.info(f"Running on Render: {IS_RENDER}")
     logger.info(f"Parent PIN: {'SET' if PARENT_PIN else 'NOT SET (unprotected)'}")
     logger.info(f"Agent PIN:  {'SET' if AGENT_PIN else 'NOT SET (unprotected)'}")
     logger.info(f"Telegram:   {'ENABLED' if telegram_config.get('enabled') else 'disabled'}")
+    logger.info(f"Offline threshold: {OFFLINE_THRESHOLD}s, purge grace: {OFFLINE_GRACE}s")
 
     start_ping_system()
     start_watchdog()
