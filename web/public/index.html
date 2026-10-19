@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛡️ PACON Remote Control v1.2.8</title>
+<title>🛡️ PACON Remote Control v1.2.9</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -444,7 +444,7 @@ body {
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
-        <span>PACON Remote Control v1.2.8</span>
+        <span>PACON Remote Control v1.2.9</span>
     </div>
     <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
         <option value="">-- Select Device --</option>
@@ -790,7 +790,7 @@ body {
 </div>
 
 <div class="rc-log" id="rcLog">
-    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.8 initialized</div>
+    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.9 initialized</div>
 </div>
 <button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
     <i class="fas fa-chevron-down"></i>
@@ -1420,18 +1420,30 @@ function rcZoom(direction) {
 }
 
 // ============================================================
-// SCREEN INTERACTION (V1.2.8: Fire-and-forget)
+// SCREEN INTERACTION (V1.2.9: Absolute Pixel Clicks)
 // ============================================================
+function rcScreenSize() {
+    if (currentDeviceScreen && currentDeviceScreen.width > 0) return currentDeviceScreen;
+    return { width: 1920, height: 1080 };
+}
+
 function setupScreenInteraction() {
     const overlay = document.getElementById('screenOverlay');
     const img = document.getElementById('screenImg');
     if (!overlay || !img) return;
 
-    const getNorm = (e) => {
+    const getAbsCoords = (e) => {
         const rect = img.getBoundingClientRect();
+        const sz = rcScreenSize();
+        
+        // Calculate normalized position (0.0 to 1.0)
+        const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+        
+        // Convert to absolute pixels based on the real screen size
         return {
-            x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
-            y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
+            x: Math.round(nx * sz.width),
+            y: Math.round(ny * sz.height)
         };
     };
 
@@ -1454,18 +1466,18 @@ function setupScreenInteraction() {
             return;
         }
         
+        const c = getAbsCoords(e);
+        showRipple(e.clientX, e.clientY);
+
         // Right click
         if (e.button === 2) {
-            const p = getNorm(e);
-            showRipple(e.clientX, e.clientY, 'right');
-            // Fire-and-forget
-            api('/api/control/rightclick', 'POST', { deviceId: currentDeviceId, x: p.x, y: p.y });
+            rcLog(`🖱️ Right-click (${c.x}, ${c.y})`, 'info');
+            api('/api/control/rightclick', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
             return;
         }
 
-        startPoint = getNorm(e);
+        startPoint = c;
         isDragging = false;
-        showRipple(e.clientX, e.clientY);
 
         const now = Date.now();
         clickCount = (now - lastClickTime < 300) ? clickCount + 1 : 1;
@@ -1476,12 +1488,12 @@ function setupScreenInteraction() {
             if (!isDragging) {
                 if (clickCount >= 2) {
                     showRipple(e.clientX, e.clientY, 'double');
-                    // Fire-and-forget double click
-                    api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x: startPoint.x, y: startPoint.y });
+                    rcLog(`🖱️ Double-click (${c.x}, ${c.y})`, 'info');
+                    api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
                     clickCount = 0;
                 } else {
-                    // Fire-and-forget long press
-                    api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x: startPoint.x, y: startPoint.y });
+                    rcLog(`🖱️ Long-press (${c.x}, ${c.y})`, 'warn');
+                    api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
                 }
                 pressTimer = null;
             }
@@ -1490,8 +1502,8 @@ function setupScreenInteraction() {
 
     overlay.addEventListener('mousemove', (e) => {
         if (!startPoint) return;
-        const p = getNorm(e);
-        if (Math.sqrt((p.x - startPoint.x)**2 + (p.y - startPoint.y)**2) > 0.02) {
+        const c = getAbsCoords(e);
+        if (Math.sqrt((c.x - startPoint.x)**2 + (c.y - startPoint.y)**2) > 20) {
             isDragging = true;
             if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         }
@@ -1500,30 +1512,28 @@ function setupScreenInteraction() {
     overlay.addEventListener('mouseup', (e) => {
         if (e.button === 2) return;
         if (!startPoint) return;
-        const endPoint = getNorm(e);
+        const c = getAbsCoords(e);
         
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
             
             if (clickCount >= 2) {
-                // Fire-and-forget double click
-                api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x: endPoint.x, y: endPoint.y });
+                rcLog(`🖱️ Double-click (${c.x}, ${c.y})`, 'info');
+                api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
                 clickCount = 0;
             } else {
-                // Fire-and-forget single tap
-                api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x: endPoint.x, y: endPoint.y });
+                rcLog(`👆 Tap (${c.x}, ${c.y})`, 'info');
+                api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
             }
         } else if (isDragging) {
-            // Fire-and-forget swipe
-            const sz = rcScreenSize();
+            rcLog(`👆 Swipe (${startPoint.x},${startPoint.y})→(${c.x},${c.y})`, 'info');
             api('/api/control/swipe', 'POST', {
                 deviceId: currentDeviceId,
-                x1: Math.round(startPoint.x * sz.width), y1: Math.round(startPoint.y * sz.height),
-                x2: Math.round(endPoint.x * sz.width), y2: Math.round(endPoint.y * sz.height),
+                x1: startPoint.x, y1: startPoint.y,
+                x2: c.x, y2: c.y,
                 duration: 250
             });
-            rcLog(`👆 Swipe`, 'info');
         }
         startPoint = null;
         isDragging = false;
@@ -1543,11 +1553,10 @@ function setupScreenInteraction() {
             rcZoom(e.deltaY > 0 ? -1 : 1);
             return;
         }
-        const p = getNorm(e);
+        const c = getAbsCoords(e);
         const amount = e.deltaY > 0 ? -3 : 3;
         
-        // Fire-and-forget scroll
-        api('/api/control/scroll', 'POST', { deviceId: currentDeviceId, x: p.x, y: p.y, amount });
+        api('/api/control/scroll', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y, amount });
     }, { passive: false });
 
     overlay.addEventListener('touchstart', (e) => {
@@ -1572,11 +1581,6 @@ function setupScreenInteraction() {
 // ============================================================
 // CONTROL ACTIONS (V1.2.8: Fire-and-forget)
 // ============================================================
-function rcScreenSize() {
-    if (currentDeviceScreen && currentDeviceScreen.width > 0) return currentDeviceScreen;
-    return { width: 1920, height: 1080 };
-}
-
 async function rcTap(nx, ny) {
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
@@ -2496,7 +2500,7 @@ function rcShowShortcuts() {
 }
 
 // ============================================================
-// TELEGRAM — v1.2.8 (file send helpers)
+// TELEGRAM — v1.2.9 (file send helpers)
 // ============================================================
 async function tgLoad() {
     try {
@@ -2824,7 +2828,7 @@ function rcBootAfterAuth() {
         if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('✅ UI v1.2.8 ready. Select a device to begin.', 'success');
+    rcLog('✅ UI v1.2.9 ready. Select a device to begin.', 'success');
 }
 </script>
 </body>
