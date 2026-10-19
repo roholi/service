@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🛡️ PACON Remote Control v1.2.7</title>
+<title>🛡️ PACON Remote Control v1.2.8</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 <style>
@@ -162,7 +162,8 @@ body {
     max-height: calc(100vh - 48px);
     user-select: none; -webkit-user-drag: none; pointer-events: none;
 }
-#screenOverlay { position: absolute; inset: 0; cursor: crosshair; z-index: 10; }
+#screenOverlay { position: absolute; inset: 0; cursor: default; z-index: 10; }
+#screenOverlay:active { cursor: crosshair; }
 .rc-screen-loading {
     position: absolute; inset: 0; background: rgba(0, 0, 0, 0.7);
     display: flex; flex-direction: column; align-items: center;
@@ -443,7 +444,7 @@ body {
 <div class="rc-header">
     <div class="brand">
         <i class="fas fa-shield-alt"></i>
-        <span>PACON Remote Control v1.2.7</span>
+        <span>PACON Remote Control v1.2.8</span>
     </div>
     <select class="device-select" id="deviceSelect" onchange="rcSelectDevice(this.value)">
         <option value="">-- Select Device --</option>
@@ -789,7 +790,7 @@ body {
 </div>
 
 <div class="rc-log" id="rcLog">
-    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.7 initialized</div>
+    <div class="log-line info"><span class="time">[--:--:--]</span>PACON v1.2.8 initialized</div>
 </div>
 <button class="log-toggle" onclick="document.getElementById('rcLog').classList.toggle('collapsed')">
     <i class="fas fa-chevron-down"></i>
@@ -1419,7 +1420,7 @@ function rcZoom(direction) {
 }
 
 // ============================================================
-// SCREEN INTERACTION
+// SCREEN INTERACTION (V1.2.8: Fire-and-forget)
 // ============================================================
 function setupScreenInteraction() {
     const overlay = document.getElementById('screenOverlay');
@@ -1452,12 +1453,16 @@ function setupScreenInteraction() {
             toast(`Device is ${ds.status || 'offline'}`, 'warn', 1500);
             return;
         }
+        
+        // Right click
         if (e.button === 2) {
             const p = getNorm(e);
             showRipple(e.clientX, e.clientY, 'right');
-            rcRightClick(p.x, p.y);
+            // Fire-and-forget
+            api('/api/control/rightclick', 'POST', { deviceId: currentDeviceId, x: p.x, y: p.y });
             return;
         }
+
         startPoint = getNorm(e);
         isDragging = false;
         showRipple(e.clientX, e.clientY);
@@ -1466,14 +1471,17 @@ function setupScreenInteraction() {
         clickCount = (now - lastClickTime < 300) ? clickCount + 1 : 1;
         lastClickTime = now;
 
+        // 600ms for long-press
         pressTimer = setTimeout(() => {
             if (!isDragging) {
                 if (clickCount >= 2) {
                     showRipple(e.clientX, e.clientY, 'double');
-                    rcDoubleClick(startPoint.x, startPoint.y);
+                    // Fire-and-forget double click
+                    api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x: startPoint.x, y: startPoint.y });
                     clickCount = 0;
                 } else {
-                    rcLongPress(startPoint.x, startPoint.y);
+                    // Fire-and-forget long press
+                    api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x: startPoint.x, y: startPoint.y });
                 }
                 pressTimer = null;
             }
@@ -1493,17 +1501,29 @@ function setupScreenInteraction() {
         if (e.button === 2) return;
         if (!startPoint) return;
         const endPoint = getNorm(e);
+        
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
+            
             if (clickCount >= 2) {
-                rcDoubleClick(endPoint.x, endPoint.y);
+                // Fire-and-forget double click
+                api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x: endPoint.x, y: endPoint.y });
                 clickCount = 0;
             } else {
-                rcTap(endPoint.x, endPoint.y);
+                // Fire-and-forget single tap
+                api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x: endPoint.x, y: endPoint.y });
             }
         } else if (isDragging) {
-            rcSwipe(startPoint.x, startPoint.y, endPoint.x, endPoint.y, 250);
+            // Fire-and-forget swipe
+            const sz = rcScreenSize();
+            api('/api/control/swipe', 'POST', {
+                deviceId: currentDeviceId,
+                x1: Math.round(startPoint.x * sz.width), y1: Math.round(startPoint.y * sz.height),
+                x2: Math.round(endPoint.x * sz.width), y2: Math.round(endPoint.y * sz.height),
+                duration: 250
+            });
+            rcLog(`👆 Swipe`, 'info');
         }
         startPoint = null;
         isDragging = false;
@@ -1525,7 +1545,9 @@ function setupScreenInteraction() {
         }
         const p = getNorm(e);
         const amount = e.deltaY > 0 ? -3 : 3;
-        rcScroll(p.x, p.y, amount);
+        
+        // Fire-and-forget scroll
+        api('/api/control/scroll', 'POST', { deviceId: currentDeviceId, x: p.x, y: p.y, amount });
     }, { passive: false });
 
     overlay.addEventListener('touchstart', (e) => {
@@ -1548,7 +1570,7 @@ function setupScreenInteraction() {
 }
 
 // ============================================================
-// CONTROL ACTIONS
+// CONTROL ACTIONS (V1.2.8: Fire-and-forget)
 // ============================================================
 function rcScreenSize() {
     if (currentDeviceScreen && currentDeviceScreen.width > 0) return currentDeviceScreen;
@@ -1559,21 +1581,21 @@ async function rcTap(nx, ny) {
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
     rcLog(`👆 Tap (${x}, ${y})`, 'info');
-    await rcSendAndTrack('/api/control/tap', { x, y }, `Tap (${x},${y})`, { silentSuccess: true });
+    api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x, y }).catch(()=>{});
 }
 
 async function rcRightClick(nx, ny) {
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
     rcLog(`🖱️ Right-click (${x}, ${y})`, 'info');
-    await rcSendAndTrack('/api/control/rightclick', { x, y }, `Right-click (${x},${y})`, { silentSuccess: true });
+    api('/api/control/rightclick', 'POST', { deviceId: currentDeviceId, x, y }).catch(()=>{});
 }
 
 async function rcDoubleClick(nx, ny) {
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
     rcLog(`🖱️ Double-click (${x}, ${y})`, 'info');
-    await rcSendAndTrack('/api/control/doubleclick', { x, y }, `Double-click (${x},${y})`, { silentSuccess: true });
+    api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x, y }).catch(()=>{});
 }
 
 async function rcSwipe(nx1, ny1, nx2, ny2, duration) {
@@ -1581,24 +1603,20 @@ async function rcSwipe(nx1, ny1, nx2, ny2, duration) {
     const x1 = Math.round(nx1 * sz.width), y1 = Math.round(ny1 * sz.height);
     const x2 = Math.round(nx2 * sz.width), y2 = Math.round(ny2 * sz.height);
     rcLog(`👆 Swipe (${x1},${y1})→(${x2},${y2})`, 'info');
-    await rcSendAndTrack('/api/control/swipe',
-        { x1, y1, x2, y2, duration },
-        `Swipe`, { silentSuccess: true });
+    api('/api/control/swipe', 'POST', { deviceId: currentDeviceId, x1, y1, x2, y2, duration }).catch(()=>{});
 }
 
 async function rcLongPress(nx, ny) {
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
     rcLog(`👆 Long-press (${x}, ${y})`, 'warn');
-    await rcSendAndTrack('/api/control/longpress', { x, y }, `Long-press`, { silentSuccess: true });
+    api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x, y }).catch(()=>{});
 }
 
 async function rcScroll(nx, ny, amount) {
     const sz = rcScreenSize();
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    await rcSendAndTrack('/api/control/scroll',
-        { x, y, amount },
-        `Scroll ${amount > 0 ? 'up' : 'down'}`, { silentSuccess: true, attempts: 8 });
+    api('/api/control/scroll', 'POST', { deviceId: currentDeviceId, x, y, amount }).catch(()=>{});
 }
 
 async function rcKey(key) {
@@ -2478,7 +2496,7 @@ function rcShowShortcuts() {
 }
 
 // ============================================================
-// TELEGRAM — v1.2.7.2 (file send helpers)
+// TELEGRAM — v1.2.8 (file send helpers)
 // ============================================================
 async function tgLoad() {
     try {
@@ -2806,7 +2824,7 @@ function rcBootAfterAuth() {
         if (e.key === 'Escape') { e.preventDefault(); rcHotkey('esc'); }
     });
 
-    rcLog('✅ UI v1.2.7.2 ready. Select a device to begin.', 'success');
+    rcLog('✅ UI v1.2.8 ready. Select a device to begin.', 'success');
 }
 </script>
 </body>

